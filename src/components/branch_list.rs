@@ -20,11 +20,11 @@ pub struct GitBranchList {
   state: ListState,
 }
 
-impl<'repo> GitBranchList {
+impl GitBranchList {
   pub fn new() -> Self {
     // TODO handle no branches properly
     let branches = get_local_branches().unwrap();
-    return GitBranchList { branches, state: ListState::default().with_selected(Some(0)) };
+    GitBranchList { branches, state: ListState::default().with_selected(Some(0)) }
   }
 
   pub fn get_render_items(&mut self) -> Vec<String> {
@@ -62,7 +62,7 @@ impl<'repo> GitBranchList {
   }
 }
 
-impl<'repo> Component for GitBranchList {
+impl Component for GitBranchList {
   fn handle_key_events(&mut self, key: KeyEvent) -> color_eyre::Result<Option<Action>> {
     if key.code == KeyCode::Down {
       self.select_next()

@@ -11,20 +11,20 @@ pub struct GitBranch {
 pub fn get_current_repo() -> Result<Repository, Error> {
   let path_buf = current_dir().expect("Unable to get current path");
   let repo = Repository::open(path_buf.as_path())?;
-  return Ok(repo);
+  Ok(repo)
 }
 
 fn get_branch_name(result: Result<(Branch, BranchType), git2::Error>) -> Option<GitBranch> {
   let (branch, branch_type) = result.ok()?;
   let name = branch.name().ok()??;
-  return Some(GitBranch { name: String::from(name) });
+  Some(GitBranch { name: String::from(name) })
 }
 
 pub fn get_local_branches() -> Result<Vec<GitBranch>, Error> {
   let repo = get_current_repo()?;
   let branches = repo.branches(Some(BranchType::Local))?;
   let loaded_branches: Vec<GitBranch> = branches.filter_map(get_branch_name).collect();
-  return Ok(loaded_branches);
+  Ok(loaded_branches)
 }
 
 pub fn delete_branch(repo: &Repository, to_delete: &GitBranch) -> Result<(), Error> {
@@ -43,5 +43,5 @@ pub fn delete_branch(repo: &Repository, to_delete: &GitBranch) -> Result<(), Err
       break;
     }
   }
-  return Ok(());
+  Ok(())
 }
