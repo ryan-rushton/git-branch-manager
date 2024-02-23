@@ -8,7 +8,7 @@ pub mod cli;
 pub mod components;
 pub mod config;
 pub mod error;
-pub mod git;
+mod git;
 pub mod mode;
 pub mod tui;
 pub mod utils;

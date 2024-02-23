@@ -10,7 +10,7 @@ use ratatui::{
 use crate::{
   action::Action,
   components::{home::Home, Component},
-  git::{get_local_branches, GitBranch},
+  git::repo::{GitBranch, GitRepo},
   tui::Frame,
 };
 
@@ -21,9 +21,8 @@ pub struct GitBranchList {
 }
 
 impl GitBranchList {
-  pub fn new() -> Self {
-    // TODO handle no branches properly
-    let branches = get_local_branches().unwrap();
+  pub fn new(mut repo: GitRepo) -> Self {
+    let branches = repo.local_branches().unwrap();
     GitBranchList { branches, state: ListState::default().with_selected(Some(0)) }
   }
 

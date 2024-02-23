@@ -9,7 +9,7 @@ use crate::{
   action::Action,
   components::{branch_list::GitBranchList, fps::FpsCounter, home::Home, Component},
   config::Config,
-  git::get_current_repo,
+  git::repo::GitRepo,
   mode::Mode,
   tui,
 };
@@ -27,9 +27,10 @@ pub struct App {
 
 impl App {
   pub fn new(tick_rate: f64, frame_rate: f64) -> Result<Self> {
+    let repo = GitRepo::from_cwd().unwrap();
     let home = Home::new();
     let fps = FpsCounter::default();
-    let branch_list = GitBranchList::new();
+    let branch_list = GitBranchList::new(repo);
     let config = Config::new()?;
     let mode = Mode::Home;
     Ok(Self {
