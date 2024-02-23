@@ -78,7 +78,7 @@ impl Component for GitBranchList {
 
   fn draw(&mut self, f: &mut Frame<'_>, area: Rect) -> color_eyre::Result<()> {
     let list = List::new(self.get_render_items())
-      .block(Block::default().title("List").borders(Borders::ALL))
+      .block(Block::default().title("Local Branches").borders(Borders::ALL))
       .style(Style::default().fg(Color::White))
       .highlight_style(Style::default().add_modifier(Modifier::ITALIC).add_modifier(Modifier::BOLD))
       .highlight_symbol("→")
