@@ -33,7 +33,7 @@ impl GitRepo {
     Ok(loaded_branches)
   }
 
-  pub fn delete_branch(&mut self, to_delete: GitBranch) -> Result<(), Error> {
+  pub fn delete_branch(&mut self, to_delete: &GitBranch) -> Result<(), Error> {
     let branches = self.repo.branches(Some(BranchType::Local))?;
     for res in branches.into_iter() {
       if res.is_err() {

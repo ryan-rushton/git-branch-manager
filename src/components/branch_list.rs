@@ -10,20 +10,28 @@ use ratatui::{
 use crate::{
   action::Action,
   components::{home::Home, Component},
+  error::Error,
   git::repo::{GitBranch, GitRepo},
   tui::Frame,
 };
 
-#[derive(Default)]
 pub struct GitBranchList {
+  repo: GitRepo,
   branches: Vec<GitBranch>,
   state: ListState,
 }
 
+impl Default for GitBranchList {
+  fn default() -> Self {
+    Self::new()
+  }
+}
+
 impl GitBranchList {
-  pub fn new(mut repo: GitRepo) -> Self {
+  pub fn new() -> Self {
+    let mut repo = GitRepo::from_cwd().unwrap();
     let branches = repo.local_branches().unwrap();
-    GitBranchList { branches, state: ListState::default().with_selected(Some(0)) }
+    GitBranchList { repo, branches, state: ListState::default().with_selected(Some(0)) }
   }
 
   pub fn get_render_items(&mut self) -> Vec<String> {
@@ -59,6 +67,23 @@ impl GitBranchList {
     }
     self.state.select(Some(selected + 1))
   }
+
+  pub fn deleted_selected(&mut self) -> Result<(), Error> {
+    if self.state.selected().is_none() {
+      return Ok(());
+    }
+    let selected_index = self.state.selected().unwrap();
+    let selected = self.branches.get(selected_index);
+    if selected.is_none() {
+      return Ok(());
+    }
+    let delete_result = self.repo.delete_branch(selected.unwrap());
+    if delete_result.is_err() {
+      return Ok(())
+    }
+    self.branches.remove(selected_index);
+    Ok(())
+  }
 }
 
 impl Component for GitBranchList {
@@ -68,6 +93,9 @@ impl Component for GitBranchList {
     }
     if key.code == KeyCode::Up {
       self.select_previous()
+    }
+    if key.code == KeyCode::Delete || key.code == KeyCode::Backspace {
+      self.deleted_selected()?
     }
     Ok(None)
   }

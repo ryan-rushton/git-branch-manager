@@ -27,10 +27,9 @@ pub struct App {
 
 impl App {
   pub fn new(tick_rate: f64, frame_rate: f64) -> Result<Self> {
-    let repo = GitRepo::from_cwd().unwrap();
     let home = Home::new();
     let fps = FpsCounter::default();
-    let branch_list = GitBranchList::new(repo);
+    let branch_list = GitBranchList::new();
     let config = Config::new()?;
     let mode = Mode::Home;
     Ok(Self {
