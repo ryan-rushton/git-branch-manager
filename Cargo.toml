@@ -18,6 +18,7 @@ crossterm = { version = "0.27.0", features = ["serde", "event-stream"] }
 derive_deref = "1.1.1"
 directories = "5.0.1"
 futures = "0.3.28"
+git2 = "0.18.2"
 human-panic = "1.2.0"
 json5 = "0.4.1"
 lazy_static = "1.4.0"
@@ -35,6 +36,7 @@ tokio-util = "0.7.9"
 tracing = "0.1.37"
 tracing-error = "0.2.0"
 tracing-subscriber = { version = "0.3.17", features = ["env-filter", "serde"] }
+thiserror = "1.0.57"
 
 [build-dependencies]
 vergen = { version = "8.2.6", features = [ "build", "git", "gitoxide", "cargo" ]}
