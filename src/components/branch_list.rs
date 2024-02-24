@@ -1,5 +1,5 @@
 use color_eyre::owo_colors::OwoColorize;
-use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+use crossterm::event::{KeyCode, KeyEvent};
 use ratatui::{
   layout::{Constraint, Direction, Layout, Rect},
   style::{Color, Modifier, Style},
@@ -49,7 +49,7 @@ impl Default for GitBranchList {
 
 impl GitBranchList {
   pub fn new() -> Self {
-    let mut repo = GitRepo::from_cwd().unwrap();
+    let repo = GitRepo::from_cwd().unwrap();
     let branches = repo
       .local_branches()
       .unwrap()
@@ -123,26 +123,47 @@ impl GitBranchList {
     self.branches.remove(selected_index);
     Ok(())
   }
+
+  pub fn delete_marked_branches(&mut self) -> Result<(), Error> {
+    let mut indexes_to_delete: Vec<usize> = Vec::new();
+
+    for branch_index in 0..self.branches.len() {
+      let branch_item = &self.branches[branch_index];
+      if !branch_item.marked_for_deletion {
+        continue;
+      }
+      let del_result = self.repo.delete_branch(&branch_item.branch);
+      if del_result.is_ok() {
+        indexes_to_delete.push(branch_index);
+      } else {
+        // TODO communicate deletion error
+      }
+    }
+
+    // Sort and reverse, so we remove branches starting from the end,
+    // which means we don't need to worry about changing array positions.
+    indexes_to_delete.reverse();
+    for index in indexes_to_delete {
+      self.branches.remove(index);
+    }
+    Ok(())
+  }
 }
 
 impl Component for GitBranchList {
   fn handle_key_events(&mut self, key: KeyEvent) -> color_eyre::Result<Option<Action>> {
-    if key.code == KeyCode::Down {
-      return Ok(Some(Action::SelectNextBranch));
+    match key {
+      KeyEvent { code: KeyCode::Down, modifiers: _, kind: _, state: _ } => Ok(Some(Action::SelectNextBranch)),
+      KeyEvent { code: KeyCode::Up, modifiers: _, kind: _, state: _ } => Ok(Some(Action::SelectPreviousBranch)),
+      KeyEvent { code: KeyCode::Char('d'), modifiers: _, kind: _, state: _ } => {
+        Ok(Some(Action::ToggleBranchMarkedForDeletion))
+      },
+      KeyEvent { code: KeyCode::Char('a'), modifiers: _, kind: _, state: _ } => {
+        Ok(Some(Action::DeleteAllMarkedBranches))
+      },
+      KeyEvent { code: KeyCode::Backspace, modifiers: _, kind: _, state: _ } => Ok(Some(Action::DeleteBranch)),
+      _ => Ok(None),
     }
-    if key.code == KeyCode::Up {
-      return Ok(Some(Action::SelectPreviousBranch));
-    }
-    if key.code == KeyCode::Char('d') {
-      return Ok(Some(Action::ToggleBranchMarkedForDeletion));
-    }
-    if key.code == KeyCode::Delete || key.code == KeyCode::Backspace {
-      return Ok(Some(Action::DeleteBranch));
-    }
-    if (key.code == KeyCode::Delete || key.code == KeyCode::Backspace) && key.modifiers == KeyModifiers::SHIFT {
-      return Ok(Some(Action::DeleteAllMarkedBranches))
-    }
-    Ok(None)
   }
 
   fn update(&mut self, action: Action) -> color_eyre::Result<Option<Action>> {
@@ -159,7 +180,7 @@ impl Component for GitBranchList {
       self.deleted_selected()?
     }
     if action == Action::DeleteAllMarkedBranches {
-      // TODO
+      self.delete_marked_branches()?
     }
     Ok(None)
   }
