@@ -79,7 +79,7 @@ impl GitBranchList {
     }
     let delete_result = self.repo.delete_branch(selected.unwrap());
     if delete_result.is_err() {
-      return Ok(())
+      return Ok(());
     }
     self.branches.remove(selected_index);
     Ok(())
