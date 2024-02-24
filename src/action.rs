@@ -1,7 +1,5 @@
-use std::{fmt, string::ToString};
-
 use serde::{
-  de::{self, Deserializer, Visitor},
+  de::{Deserializer, Visitor},
   Deserialize, Serialize,
 };
 use strum::Display;
@@ -17,4 +15,9 @@ pub enum Action {
   Refresh,
   Error(String),
   Help,
+  SelectNextBranch,
+  SelectPreviousBranch,
+  ToggleBranchMarkedForDeletion,
+  DeleteBranch,
+  DeleteAllMarkedBranches,
 }

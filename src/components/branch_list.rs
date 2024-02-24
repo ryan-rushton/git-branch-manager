@@ -1,8 +1,9 @@
 use color_eyre::owo_colors::OwoColorize;
-use crossterm::event::{KeyCode, KeyEvent};
+use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use ratatui::{
-  layout::Rect,
+  layout::{Constraint, Direction, Layout, Rect},
   style::{Color, Modifier, Style},
+  text::{Line, Span},
   widgets::{Block, Borders, List, ListItem, ListState},
 };
 
@@ -127,25 +128,45 @@ impl GitBranchList {
 impl Component for GitBranchList {
   fn handle_key_events(&mut self, key: KeyEvent) -> color_eyre::Result<Option<Action>> {
     if key.code == KeyCode::Down {
-      self.select_next()
+      return Ok(Some(Action::SelectNextBranch));
     }
     if key.code == KeyCode::Up {
-      self.select_previous()
+      return Ok(Some(Action::SelectPreviousBranch));
     }
     if key.code == KeyCode::Char('d') {
-      self.toggle_selected_for_deletion()?
+      return Ok(Some(Action::ToggleBranchMarkedForDeletion));
     }
     if key.code == KeyCode::Delete || key.code == KeyCode::Backspace {
-      self.deleted_selected()?
+      return Ok(Some(Action::DeleteBranch));
+    }
+    if (key.code == KeyCode::Delete || key.code == KeyCode::Backspace) && key.modifiers == KeyModifiers::SHIFT {
+      return Ok(Some(Action::DeleteAllMarkedBranches))
     }
     Ok(None)
   }
 
   fn update(&mut self, action: Action) -> color_eyre::Result<Option<Action>> {
+    if action == Action::SelectNextBranch {
+      self.select_next()
+    }
+    if action == Action::SelectPreviousBranch {
+      self.select_previous()
+    }
+    if action == Action::ToggleBranchMarkedForDeletion {
+      self.toggle_selected_for_deletion()?
+    }
+    if action == Action::DeleteBranch {
+      self.deleted_selected()?
+    }
+    if action == Action::DeleteAllMarkedBranches {
+      // TODO
+    }
     Ok(None)
   }
 
   fn draw(&mut self, f: &mut Frame<'_>, area: Rect) -> color_eyre::Result<()> {
+    let layout = Layout::new(Direction::Vertical, [Constraint::Fill(1), Constraint::Length(1)]).margin(1).split(area);
+
     let render_items: Vec<ListItem> = self.branches.iter().map(|git_branch| git_branch.render()).collect();
     let list = List::new(render_items)
       .block(Block::default().title("Local Branches").borders(Borders::ALL))
@@ -153,7 +174,20 @@ impl Component for GitBranchList {
       .highlight_style(Style::default().add_modifier(Modifier::ITALIC).add_modifier(Modifier::BOLD))
       .highlight_symbol("→")
       .repeat_highlight_symbol(true);
-    f.render_stateful_widget(list, area, &mut self.state);
+
+    let mut commands = vec![Span::raw("q: Quit")];
+    if self.get_selected_branch().is_some() && self.get_selected_branch().unwrap().marked_for_deletion {
+      commands.push(Span::raw(" | d: Unmark for deletion"));
+    } else {
+      commands.push(Span::raw(" | d: Mark for deletion"));
+    }
+    commands.push(Span::raw(" | ←: Delete branch"));
+    commands.push(Span::raw(" | ⇧ + ←: Delete all"));
+    let footer = Line::from(commands);
+
+    f.render_stateful_widget(list, layout[0], &mut self.state);
+    f.render_widget(footer, layout[1]);
+
     Ok(())
   }
 }
