@@ -4,8 +4,7 @@ use git2::{Branch, BranchType, Repository};
 
 use crate::error::Error;
 
-#[derive(Debug, Default, Clone)]
-
+#[derive(Debug, Default, Clone, PartialEq, Eq)]
 pub struct GitBranch {
   pub name: String,
 }
