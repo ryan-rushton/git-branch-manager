@@ -4,8 +4,7 @@ use git2::{Branch, BranchType, Repository};
 
 use crate::error::Error;
 
-#[derive(Debug, Default, Clone)]
-
+#[derive(Debug, Default, Clone, PartialEq, Eq)]
 pub struct GitBranch {
   pub name: String,
 }
@@ -27,13 +26,13 @@ impl GitRepo {
     Some(GitBranch { name: String::from(name) })
   }
 
-  pub fn local_branches(&mut self) -> Result<Vec<GitBranch>, Error> {
+  pub fn local_branches(&self) -> Result<Vec<GitBranch>, Error> {
     let branches = self.repo.branches(Some(BranchType::Local))?;
     let loaded_branches: Vec<GitBranch> = branches.filter_map(GitRepo::get_branch_name).collect();
     Ok(loaded_branches)
   }
 
-  pub fn delete_branch(&mut self, to_delete: GitBranch) -> Result<(), Error> {
+  pub fn delete_branch(&self, to_delete: &GitBranch) -> Result<(), Error> {
     let branches = self.repo.branches(Some(BranchType::Local))?;
     for res in branches.into_iter() {
       if res.is_err() {
