@@ -21,7 +21,7 @@ impl GitRepo {
   }
 
   fn get_branch_name(result: Result<(Branch, BranchType), git2::Error>) -> Option<GitBranch> {
-    let (branch, branch_type) = result.ok()?;
+    let (branch, _branch_type) = result.ok()?;
     let name = branch.name().ok()??;
     Some(GitBranch { name: String::from(name) })
   }
@@ -38,7 +38,7 @@ impl GitRepo {
       if res.is_err() {
         continue;
       }
-      let (mut branch, branch_type) = res.unwrap();
+      let (mut branch, _branch_type) = res.unwrap();
       if branch.name().is_err() {
         continue;
       }

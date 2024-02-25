@@ -10,8 +10,6 @@ use crate::{
 };
 
 pub mod branch_list;
-pub mod fps;
-pub mod home;
 
 /// `Component` is a trait that represents a visual and interactive element of the user interface.
 /// Implementors of this trait can be registered with the main application loop and will be able to receive events,
@@ -52,7 +50,7 @@ pub trait Component {
   /// # Returns
   ///
   /// * `Result<()>` - An Ok result or an error.
-  fn init(&mut self, area: Rect) -> Result<()> {
+  fn init(&mut self, _area: Rect) -> Result<()> {
     Ok(())
   }
   /// Handle incoming events and produce actions if necessary.

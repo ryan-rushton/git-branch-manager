@@ -1,6 +1,6 @@
 {
   "keybindings": {
-    "Home": {
+    "GitBranchManager": {
       "<q>": "Quit",
       // Quit the application
       "<Ctrl-c>": "Quit",

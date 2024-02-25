@@ -1,15 +1,10 @@
-use std::{collections::HashMap, fmt, path::PathBuf};
+use std::{collections::HashMap, path::PathBuf};
 
 use color_eyre::eyre::Result;
-use config::Value;
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use derive_deref::{Deref, DerefMut};
 use ratatui::style::{Color, Modifier, Style};
-use serde::{
-  de::{self, Deserializer, MapAccess, Visitor},
-  Deserialize, Serialize,
-};
-use serde_json::Value as JsonValue;
+use serde::{de::Deserializer, Deserialize};
 
 use crate::{action::Action, mode::Mode};
 
@@ -443,7 +438,7 @@ mod tests {
   fn test_config() -> Result<()> {
     let c = Config::new()?;
     assert_eq!(
-      c.keybindings.get(&Mode::Home).unwrap().get(&parse_key_sequence("<q>").unwrap_or_default()).unwrap(),
+      c.keybindings.get(&Mode::GitBranchManager).unwrap().get(&parse_key_sequence("<q>").unwrap_or_default()).unwrap(),
       &Action::Quit
     );
     Ok(())
