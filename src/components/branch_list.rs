@@ -226,7 +226,7 @@ impl Component for GitBranchList {
     } else {
       commands.push(Span::raw(" | d: Stage for deletion"));
     }
-    commands.push(Span::raw(" | ⇧ + ←: Delete all staged branches"));
+    commands.push(Span::raw(" | ^ + d: Delete all staged branches"));
     let footer = Line::from(commands);
 
     f.render_stateful_widget(list, layout[0], &mut self.state);
