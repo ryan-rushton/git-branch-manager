@@ -1,15 +1,12 @@
 use color_eyre::eyre::Result;
 use crossterm::event::KeyEvent;
-use git2::Repository;
 use ratatui::prelude::Rect;
-use serde::{Deserialize, Serialize};
 use tokio::sync::mpsc;
 
 use crate::{
   action::Action,
-  components::{branch_list::GitBranchList, fps::FpsCounter, home::Home, Component},
+  components::{branch_list::GitBranchList, Component},
   config::Config,
-  git::repo::GitRepo,
   mode::Mode,
   tui,
 };
@@ -27,15 +24,13 @@ pub struct App {
 
 impl App {
   pub fn new(tick_rate: f64, frame_rate: f64) -> Result<Self> {
-    let home = Home::new();
-    let fps = FpsCounter::default();
     let branch_list = GitBranchList::new();
     let config = Config::new()?;
-    let mode = Mode::Home;
+    let mode = Mode::GitBranchManager;
     Ok(Self {
       tick_rate,
       frame_rate,
-      components: vec![Box::new(fps), Box::new(branch_list)],
+      components: vec![Box::new(branch_list)],
       should_quit: false,
       should_suspend: false,
       config,
