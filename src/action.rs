@@ -17,7 +17,8 @@ pub enum Action {
   Help,
   SelectNextBranch,
   SelectPreviousBranch,
-  ToggleBranchMarkedForDeletion,
+  StageBranchForDeletion,
+  UnstageBranchForDeletion,
   DeleteBranch,
-  DeleteAllMarkedBranches,
+  DeleteStagedBranches,
 }
