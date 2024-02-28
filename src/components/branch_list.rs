@@ -35,21 +35,30 @@ impl BranchItem {
   }
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum Mode {
+  Selection,
+  Input,
+}
+
+struct InputState {
+  value: Option<String>,
+  is_valid: Option<bool>,
+}
+
 pub struct GitBranchList {
   repo: GitRepo,
   // Branch list state
   branches: Vec<BranchItem>,
   state: ListState,
-  // Text input state
+  mode: Mode,
   text_input: TextArea<'static>,
-  editing_new_branch_name: bool,
-  new_branch_name: Option<String>,
-  name_is_valid: bool,
+  input_state: InputState,
 }
 
 impl Default for GitBranchList {
   fn default() -> Self {
-    Self::new()
+    GitBranchList::new()
   }
 }
 
@@ -66,11 +75,10 @@ impl GitBranchList {
     GitBranchList {
       repo,
       branches,
-      text_input,
-      name_is_valid: false,
-      editing_new_branch_name: false,
-      new_branch_name: None,
       state: ListState::default().with_selected(Some(0)),
+      mode: Mode::Selection,
+      text_input,
+      input_state: InputState { value: None, is_valid: None },
     }
   }
 
@@ -167,34 +175,46 @@ impl GitBranchList {
   fn validate_branch_name(&mut self) {
     if self.text_input.lines().first().is_none() {
       self.text_input.set_style(Style::default().fg(Color::LightRed));
-      self.name_is_valid = false;
+      self.input_state.is_valid = Some(false);
     } else {
       self.text_input.set_style(Style::default().fg(Color::LightGreen));
-      self.name_is_valid = true;
+      self.input_state.is_valid = Some(true);
     }
+  }
+
+  fn get_first_input_line(&self) -> Option<String> {
+    Some(String::from(self.text_input.lines().first()?))
   }
 
   fn handle_input_key_event(&mut self, key_event: KeyEvent) -> Option<Action> {
     match key_event {
       KeyEvent { code: KeyCode::Esc, modifiers: KeyModifiers::NONE, kind: _, state: _ } => {
-        self.editing_new_branch_name = false;
-        self.new_branch_name = None;
+        self.mode = Mode::Selection;
+        self.input_state.value = None;
         self.text_input.input(Input::from(key_event));
         None
       },
       KeyEvent { code: KeyCode::Enter, modifiers: KeyModifiers::NONE, kind: _, state: _ } => {
-        if !self.name_is_valid {
+        if self.input_state.is_valid.is_some() && !self.input_state.is_valid.unwrap() {
           // TODO report error
           return None;
         }
-        self.editing_new_branch_name = false;
-        self.new_branch_name = Some(String::from(self.text_input.lines().first().unwrap()));
+        self.mode = Mode::Selection;
+        let new_branch_name = self.get_first_input_line();
         self.text_input.input(Input::from(key_event));
-        Some(Action::CreateBranch)
+        if new_branch_name.is_some() {
+          return Some(Action::CreateBranch(new_branch_name.unwrap()));
+        }
+
+        return None;
       },
       _ => {
         if self.text_input.input(Input::from(key_event)) {
           self.validate_branch_name();
+          let new_branch_name = self.get_first_input_line();
+          if new_branch_name.is_some() {
+            self.input_state.value = Some(new_branch_name.unwrap());
+          }
         }
         None
       },
@@ -237,7 +257,7 @@ impl GitBranchList {
 
 impl Component for GitBranchList {
   fn handle_key_events(&mut self, key: KeyEvent) -> color_eyre::Result<Option<Action>> {
-    if self.editing_new_branch_name {
+    if self.mode == Mode::Input {
       return Ok(Some(Action::UpdateNewBranchName(key)));
     }
     match key {
@@ -281,12 +301,12 @@ impl Component for GitBranchList {
         Ok(None)
       },
       Action::InitNewBranch => {
-        self.editing_new_branch_name = true;
+        self.mode = Mode::Input;
         Ok(None)
       },
       Action::UpdateNewBranchName(key_event) => Ok(self.handle_input_key_event(key_event)),
-      Action::CreateBranch => {
-        self.editing_new_branch_name = false;
+      Action::CreateBranch(name) => {
+        self.mode = Mode::Selection;
         // todo set up git client to create branch
         Ok(None)
       },
@@ -311,7 +331,7 @@ impl Component for GitBranchList {
   }
 
   fn draw(&mut self, f: &mut Frame<'_>, area: Rect) -> color_eyre::Result<()> {
-    if self.editing_new_branch_name {
+    if self.mode == Mode::Input {
       let layout =
         Layout::new(Direction::Vertical, [Constraint::Fill(1), Constraint::Length(3), Constraint::Length(1)])
           .margin(1)

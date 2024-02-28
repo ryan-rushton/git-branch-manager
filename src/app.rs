@@ -24,7 +24,7 @@ pub struct App {
 
 impl App {
   pub fn new(tick_rate: f64, frame_rate: f64) -> Result<Self> {
-    let branch_list = GitBranchList::new();
+    let branch_list = GitBranchList::default();
     let config = Config::new()?;
     let mode = Mode::GitBranchManager;
     Ok(Self {
