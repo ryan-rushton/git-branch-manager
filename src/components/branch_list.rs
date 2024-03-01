@@ -182,6 +182,16 @@ impl GitBranchList {
     }
   }
 
+  fn create_branch(&mut self, name: String) -> Result<(), Error> {
+    let branch = GitBranch { name: name.clone() };
+    self.repo.create_branch(&branch)?;
+    self.branches.push(BranchItem { branch, staged_for_deletion: false });
+    self.branches.sort_by(|a, b| a.branch.name.cmp(&b.branch.name));
+    let created_index = self.branches.iter().position(|b| b.branch.name == name);
+    self.state.select(created_index);
+    Ok(())
+  }
+
   fn get_first_input_line(&self) -> Option<String> {
     Some(String::from(self.text_input.lines().first()?))
   }
@@ -307,7 +317,7 @@ impl Component for GitBranchList {
       Action::UpdateNewBranchName(key_event) => Ok(self.handle_input_key_event(key_event)),
       Action::CreateBranch(name) => {
         self.mode = Mode::Selection;
-        // todo set up git client to create branch
+        self.create_branch(name)?;
         Ok(None)
       },
       Action::StageBranchForDeletion => {
