@@ -235,8 +235,8 @@ impl GitBranchList {
         // purposely don't send the key, we want to delete the line
         self.text_input.move_cursor(CursorMove::Head);
         self.text_input.delete_line_by_end();
-        if new_branch_name.is_some() {
-          return Some(Action::CreateBranch(new_branch_name.unwrap()));
+        if let Some(name) = new_branch_name {
+          return Some(Action::CreateBranch(name));
         }
 
         Some(Action::EndInputMod)
@@ -246,7 +246,7 @@ impl GitBranchList {
           self.validate_branch_name();
           let new_branch_name = self.get_first_input_line();
           if new_branch_name.is_some() {
-            self.input_state.value = Some(new_branch_name.unwrap());
+            self.input_state.value = new_branch_name;
           }
         }
         Some(Action::EndInputMod)
