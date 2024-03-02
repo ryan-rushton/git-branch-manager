@@ -4,16 +4,14 @@ use strum::Display;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Display, Deserialize)]
 pub enum Action {
-  CreateBranch(String),
   CheckoutSelectedBranch,
+  CreateBranch(String),
   DeleteBranch,
   DeleteStagedBranches,
-  Error(String),
-  StartInputMode,
   EndInputMod,
-  Quit,
+  Error(String),
   InitNewBranch,
-  UpdateNewBranchName(KeyEvent),
+  Quit,
   Refresh,
   Render,
   Resize(u16, u16),
@@ -21,7 +19,9 @@ pub enum Action {
   SelectNextBranch,
   SelectPreviousBranch,
   StageBranchForDeletion,
+  StartInputMode,
   Suspend,
   Tick,
   UnstageBranchForDeletion,
+  UpdateNewBranchName(KeyEvent),
 }

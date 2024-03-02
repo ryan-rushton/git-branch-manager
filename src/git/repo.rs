@@ -33,7 +33,7 @@ impl GitRepo {
     Ok(loaded_branches)
   }
 
-  pub fn checkout_branch_from_name(&self, branch_name: &String) -> Result<(), Error> {
+  pub fn checkout_branch_from_name(&self, branch_name: &String) -> Result<(), git2::Error> {
     let obj = self.repo.revparse_single(&("refs/heads/".to_owned() + branch_name)).unwrap();
 
     self.repo.checkout_tree(&obj, None)?;
@@ -42,7 +42,7 @@ impl GitRepo {
     Ok(())
   }
 
-  pub fn checkout_branch(&self, branch: &GitBranch) -> Result<(), Error> {
+  pub fn checkout_branch(&self, branch: &GitBranch) -> Result<(), git2::Error> {
     self.checkout_branch_from_name(&branch.name)
   }
 

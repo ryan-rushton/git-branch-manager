@@ -3,7 +3,7 @@ use ratatui::{
   layout::{Constraint, Direction, Layout, Rect},
   style::{Color, Modifier, Style},
   text::{Line, Span},
-  widgets::{Block, Borders, List, ListItem, ListState},
+  widgets::{Block, Borders, List, ListItem, ListState, Paragraph},
 };
 use tui_textarea::{CursorMove, Input, TextArea};
 
@@ -51,11 +51,13 @@ struct InputState {
 }
 
 pub struct GitBranchList {
-  repo: GitRepo,
-  // Branch list state
-  branches: Vec<BranchItem>,
-  state: ListState,
   mode: Mode,
+  repo: GitRepo,
+  error: Option<String>,
+  // List state
+  branches: Vec<BranchItem>,
+  list_state: ListState,
+  // Input state
   text_input: TextArea<'static>,
   input_state: InputState,
 }
@@ -78,50 +80,51 @@ impl GitBranchList {
     let text_input = TextArea::default();
     GitBranchList {
       repo,
-      branches,
-      state: ListState::default().with_selected(Some(0)),
       mode: Mode::Selection,
+      error: None,
+      branches,
+      list_state: ListState::default().with_selected(Some(0)),
       text_input,
       input_state: InputState { value: None, is_valid: None },
     }
   }
 
   pub fn select_previous(&mut self) {
-    if self.state.selected().is_none() {
-      self.state.select(Some(0));
+    if self.list_state.selected().is_none() {
+      self.list_state.select(Some(0));
     }
 
-    let selected = self.state.selected().unwrap();
+    let selected = self.list_state.selected().unwrap();
     let final_index = self.branches.len() - 1;
 
     if selected == 0 {
-      self.state.select(Some(final_index));
+      self.list_state.select(Some(final_index));
       return;
     }
-    self.state.select(Some(selected - 1))
+    self.list_state.select(Some(selected - 1))
   }
 
   pub fn select_next(&mut self) {
-    if self.state.selected().is_none() {
-      self.state.select(Some(0));
+    if self.list_state.selected().is_none() {
+      self.list_state.select(Some(0));
     }
 
-    let selected = self.state.selected().unwrap();
+    let selected = self.list_state.selected().unwrap();
     let final_index = self.branches.len() - 1;
 
     if selected == final_index {
-      self.state.select(Some(0));
+      self.list_state.select(Some(0));
       return;
     }
-    self.state.select(Some(selected + 1))
+    self.list_state.select(Some(selected + 1))
   }
 
   fn get_selected_branch(&self) -> Option<&BranchItem> {
-    let selected_index = self.state.selected()?;
+    let selected_index = self.list_state.selected()?;
     self.branches.get(selected_index)
   }
 
-  fn checkout_selected(&mut self) -> Result<(), Error> {
+  fn checkout_selected(&mut self) -> Result<(), git2::Error> {
     let maybe_selected = self.get_selected_branch();
     if maybe_selected.is_none() {
       return Ok(());
@@ -135,10 +138,10 @@ impl GitBranchList {
   }
 
   pub fn stage_selected_for_deletion(&mut self, stage: bool) -> Result<(), Error> {
-    if self.state.selected().is_none() {
+    if self.list_state.selected().is_none() {
       return Ok(());
     }
-    let selected_index = self.state.selected().unwrap();
+    let selected_index = self.list_state.selected().unwrap();
     let maybe_selected = self.branches.get_mut(selected_index);
     if maybe_selected.is_none() {
       return Ok(());
@@ -152,10 +155,10 @@ impl GitBranchList {
   }
 
   pub fn deleted_selected(&mut self) -> Result<(), Error> {
-    if self.state.selected().is_none() {
+    if self.list_state.selected().is_none() {
       return Ok(());
     }
-    let selected_index = self.state.selected().unwrap();
+    let selected_index = self.list_state.selected().unwrap();
     let selected = self.branches.get(selected_index);
     if selected.is_none() {
       return Ok(());
@@ -165,6 +168,9 @@ impl GitBranchList {
       return Ok(());
     }
     self.branches.remove(selected_index);
+    if selected_index >= self.branches.len() {
+      self.list_state.select(Some(selected_index - 1));
+    }
     Ok(())
   }
 
@@ -218,7 +224,7 @@ impl GitBranchList {
       existing_branch.branch.is_head = existing_branch.branch.name == name;
     }
     let created_index = self.branches.iter().position(|b| b.branch.name == name);
-    self.state.select(created_index);
+    self.list_state.select(created_index);
     Ok(())
   }
 
@@ -274,12 +280,22 @@ impl GitBranchList {
       .highlight_symbol("→")
       .repeat_highlight_symbol(true);
 
-    f.render_stateful_widget(list, area, &mut self.state);
+    f.render_stateful_widget(list, area, &mut self.list_state);
   }
 
   fn render_input(&mut self, f: &mut Frame<'_>, area: Rect) {
     let input = self.text_input.widget();
     f.render_widget(input, area);
+  }
+
+  fn render_error(&mut self, f: &mut Frame<'_>, area: Rect) {
+    if self.error.is_none() {
+      return;
+    }
+    let error_message = Line::from(self.error.as_ref().unwrap().clone()).style(Style::default().fg(Color::Red));
+    let component =
+      Paragraph::new(error_message).block(Block::default().borders(Borders::BOTTOM | Borders::RIGHT | Borders::LEFT));
+    f.render_widget(component, area);
   }
 
   fn render_footer(&mut self, f: &mut Frame<'_>, area: Rect) {
@@ -356,7 +372,10 @@ impl Component for GitBranchList {
       },
       Action::UpdateNewBranchName(key_event) => Ok(self.handle_input_key_event(key_event)),
       Action::CheckoutSelectedBranch => {
-        self.checkout_selected()?;
+        let err = self.checkout_selected().err();
+        if err.is_some() {
+          self.error = Some(format!("{}", err.unwrap().message()));
+        }
         Ok(None)
       },
       Action::CreateBranch(name) => {
@@ -394,6 +413,16 @@ impl Component for GitBranchList {
       self.render_input(f, layout[1]);
       self.render_footer(f, layout[2]);
       return Ok(());
+    }
+
+    if self.error.is_some() {
+      let layout =
+        Layout::new(Direction::Vertical, [Constraint::Fill(1), Constraint::Length(2), Constraint::Length(1)])
+          .margin(1)
+          .split(area);
+      self.render_list(f, layout[0]);
+      self.render_error(f, layout[1]);
+      self.render_footer(f, layout[2]);
     }
 
     let layout = Layout::new(Direction::Vertical, [Constraint::Fill(1), Constraint::Length(1)]).margin(1).split(area);
