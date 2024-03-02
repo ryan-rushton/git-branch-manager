@@ -120,6 +120,19 @@ impl GitBranchList {
     let selected_index = self.state.selected()?;
     self.branches.get(selected_index)
   }
+  
+  fn checkout_selected(&mut self) -> Result<(), Error> {
+    let maybe_selected = self.get_selected_branch();
+    if maybe_selected.is_none() {
+      return Ok(());
+    }
+    let name_to_checkout = maybe_selected.unwrap().branch.name.clone();
+    self.repo.checkout_branch_from_name(&name_to_checkout)?;
+    for existing_branch in self.branches.iter_mut() {
+      existing_branch.branch.is_head = existing_branch.branch.name == name_to_checkout;
+    }
+    Ok(())
+  }
 
   pub fn stage_selected_for_deletion(&mut self, stage: bool) -> Result<(), Error> {
     if self.state.selected().is_none() {
@@ -188,12 +201,10 @@ impl GitBranchList {
     let is_valid = self.repo.validate_branch_name(proposed_name);
     if is_valid.is_err() || !is_valid.unwrap() {
       self.text_input.set_style(Style::default().fg(Color::LightRed));
-      self.text_input.set_block(Block::default().borders(Borders::ALL));
       self.input_state.is_valid = Some(false);
       return;
     }
     self.text_input.set_style(Style::default().fg(Color::LightGreen));
-    self.text_input.set_block(Block::default().borders(Borders::ALL));
     self.input_state.is_valid = Some(true);
   }
 
@@ -273,13 +284,15 @@ impl GitBranchList {
 
   fn render_footer(&mut self, f: &mut Frame<'_>, area: Rect) {
     let mut commands = vec![Span::raw("q: Quit")];
-    commands.push(Span::raw(" | c: Create branch"));
+    commands.push(Span::raw(" | ⇧ + c: Create branch"));
     let selected = self.get_selected_branch();
     if selected.is_some() && selected.unwrap().staged_for_deletion {
       commands.push(Span::raw(" | d: Delete"));
       commands.push(Span::raw(" | ⇧ + d: Unstage for deletion"));
     } else if selected.is_some() && !selected.unwrap().branch.is_head {
       commands.push(Span::raw(" | d: Stage for deletion"));
+    } else if selected.is_some() {
+      commands.push(Span::raw(" | c: Checkout"));
     }
     commands.push(Span::raw(" | ^ + d: Delete all staged branches"));
     let footer = Line::from(commands);
@@ -299,8 +312,11 @@ impl Component for GitBranchList {
       KeyEvent { code: KeyCode::Up, modifiers: KeyModifiers::NONE, kind: _, state: _ } => {
         Ok(Some(Action::SelectPreviousBranch))
       },
-      KeyEvent { code: KeyCode::Char('c'), modifiers: KeyModifiers::NONE, kind: _, state: _ } => {
+      KeyEvent { code: KeyCode::Char('c'), modifiers: KeyModifiers::SHIFT, kind: _, state: _ } => {
         Ok(Some(Action::InitNewBranch))
+      },
+      KeyEvent { code: KeyCode::Char('c'), modifiers: KeyModifiers::NONE, kind: _, state: _ } => {
+        Ok(Some(Action::CheckoutSelectedBranch))
       },
       KeyEvent { code: KeyCode::Char('d') | KeyCode::Char('D'), modifiers: KeyModifiers::SHIFT, kind: _, state: _ } => {
         Ok(Some(Action::UnstageBranchForDeletion))
@@ -339,6 +355,10 @@ impl Component for GitBranchList {
         Ok(Some(Action::StartInputMode))
       },
       Action::UpdateNewBranchName(key_event) => Ok(self.handle_input_key_event(key_event)),
+      Action::CheckoutSelectedBranch => {
+        self.checkout_selected()?;
+        Ok(None)
+      },
       Action::CreateBranch(name) => {
         self.mode = Mode::Selection;
         self.create_branch(name)?;

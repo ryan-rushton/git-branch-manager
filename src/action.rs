@@ -5,6 +5,7 @@ use strum::Display;
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Display, Deserialize)]
 pub enum Action {
   CreateBranch(String),
+  CheckoutSelectedBranch,
   DeleteBranch,
   DeleteStagedBranches,
   Error(String),
