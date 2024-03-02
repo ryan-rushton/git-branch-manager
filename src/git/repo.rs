@@ -1,8 +1,6 @@
 use std::env::current_dir;
 
-use git2::{Branch, BranchType, Repository};
-
-use crate::error::Error;
+use git2::{Branch, BranchType, Error, Repository};
 
 #[derive(Debug, Default, Clone, PartialEq, Eq)]
 pub struct GitBranch {
@@ -21,7 +19,7 @@ impl GitRepo {
     Ok(GitRepo { repo })
   }
 
-  fn create_git_branch(&self, result: Result<(Branch, BranchType), git2::Error>) -> Option<GitBranch> {
+  fn create_git_branch(&self, result: Result<(Branch, BranchType), Error>) -> Option<GitBranch> {
     let (branch, _branch_type) = result.ok()?;
     let name = branch.name().ok()??;
     Some(GitBranch { name: String::from(name), is_head: branch.is_head() })
@@ -33,7 +31,7 @@ impl GitRepo {
     Ok(loaded_branches)
   }
 
-  pub fn checkout_branch_from_name(&self, branch_name: &String) -> Result<(), git2::Error> {
+  pub fn checkout_branch_from_name(&self, branch_name: &String) -> Result<(), Error> {
     let obj = self.repo.revparse_single(&("refs/heads/".to_owned() + branch_name)).unwrap();
 
     self.repo.checkout_tree(&obj, None)?;
@@ -42,7 +40,7 @@ impl GitRepo {
     Ok(())
   }
 
-  pub fn checkout_branch(&self, branch: &GitBranch) -> Result<(), git2::Error> {
+  pub fn checkout_branch(&self, branch: &GitBranch) -> Result<(), Error> {
     self.checkout_branch_from_name(&branch.name)
   }
 
@@ -56,7 +54,7 @@ impl GitRepo {
     let head = self.repo.head()?;
     let head_oid = head.target();
     if head_oid.is_none() {
-      return Err(Error::InternalGit("Attempted to create a branch from a symbolic reference".to_string()));
+      return Err(Error::from_str("Attempted to create a branch from a symbolic reference"));
     }
     let commit = self.repo.find_commit(head.target().unwrap())?;
     self.repo.branch(&to_create.name, &commit, false)?;

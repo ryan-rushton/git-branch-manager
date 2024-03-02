@@ -2,7 +2,7 @@ use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use ratatui::{
   layout::{Constraint, Direction, Layout, Rect},
   style::{Color, Modifier, Style},
-  text::{Line, Span},
+  text::{Line, Span, Text},
   widgets::{Block, Borders, List, ListItem, ListState, Paragraph},
 };
 use tui_textarea::{CursorMove, Input, TextArea};
@@ -10,7 +10,6 @@ use tui_textarea::{CursorMove, Input, TextArea};
 use crate::{
   action::Action,
   components::Component,
-  error::Error,
   git::repo::{GitBranch, GitRepo},
   tui::Frame,
 };
@@ -137,24 +136,23 @@ impl GitBranchList {
     Ok(())
   }
 
-  pub fn stage_selected_for_deletion(&mut self, stage: bool) -> Result<(), Error> {
+  pub fn stage_selected_for_deletion(&mut self, stage: bool) {
     if self.list_state.selected().is_none() {
-      return Ok(());
+      return;
     }
     let selected_index = self.list_state.selected().unwrap();
     let maybe_selected = self.branches.get_mut(selected_index);
     if maybe_selected.is_none() {
-      return Ok(());
+      return;
     }
     let selected = maybe_selected.unwrap();
     if selected.branch.is_head {
-      return Ok(());
+      return;
     }
     selected.stage_for_deletion(stage);
-    Ok(())
   }
 
-  pub fn deleted_selected(&mut self) -> Result<(), Error> {
+  pub fn deleted_selected(&mut self) -> Result<(), git2::Error> {
     if self.list_state.selected().is_none() {
       return Ok(());
     }
@@ -174,7 +172,7 @@ impl GitBranchList {
     Ok(())
   }
 
-  pub fn delete_staged_branches(&mut self) -> Result<(), Error> {
+  pub fn delete_staged_branches(&mut self) -> Result<(), git2::Error> {
     let mut indexes_to_delete: Vec<usize> = Vec::new();
 
     for branch_index in 0..self.branches.len() {
@@ -214,7 +212,7 @@ impl GitBranchList {
     self.input_state.is_valid = Some(true);
   }
 
-  fn create_branch(&mut self, name: String) -> Result<(), Error> {
+  fn create_branch(&mut self, name: String) -> Result<(), git2::Error> {
     let branch = GitBranch { name: name.clone(), is_head: false };
     self.repo.create_branch(&branch)?;
     self.branches.push(BranchItem { branch, staged_for_deletion: false });
@@ -271,6 +269,12 @@ impl GitBranchList {
     }
   }
 
+  fn maybe_handle_git_error(&mut self, err: Option<git2::Error>) {
+    if err.is_some() {
+      self.error = Some(format!("{}", err.unwrap().message()));
+    }
+  }
+
   fn render_list(&mut self, f: &mut Frame<'_>, area: Rect) {
     let render_items: Vec<ListItem> = self.branches.iter().map(|git_branch| git_branch.render()).collect();
     let list = List::new(render_items)
@@ -292,9 +296,9 @@ impl GitBranchList {
     if self.error.is_none() {
       return;
     }
-    let error_message = Line::from(self.error.as_ref().unwrap().clone()).style(Style::default().fg(Color::Red));
-    let component =
-      Paragraph::new(error_message).block(Block::default().borders(Borders::BOTTOM | Borders::RIGHT | Borders::LEFT));
+    let error_message = self.error.as_ref().unwrap().clone();
+    let text = Text::from(error_message);
+    let component = Paragraph::new(text).block(Block::default()).style(Style::from(Color::Red));
     f.render_widget(component, area);
   }
 
@@ -372,31 +376,32 @@ impl Component for GitBranchList {
       },
       Action::UpdateNewBranchName(key_event) => Ok(self.handle_input_key_event(key_event)),
       Action::CheckoutSelectedBranch => {
-        let err = self.checkout_selected().err();
-        if err.is_some() {
-          self.error = Some(format!("{}", err.unwrap().message()));
-        }
+        let result = self.checkout_selected();
+        self.maybe_handle_git_error(result.err());
         Ok(None)
       },
       Action::CreateBranch(name) => {
         self.mode = Mode::Selection;
-        self.create_branch(name)?;
+        let result = self.create_branch(name);
+        self.maybe_handle_git_error(result.err());
         Ok(Some(Action::EndInputMod))
       },
       Action::StageBranchForDeletion => {
-        self.stage_selected_for_deletion(true)?;
+        self.stage_selected_for_deletion(true);
         Ok(None)
       },
       Action::UnstageBranchForDeletion => {
-        self.stage_selected_for_deletion(false)?;
+        self.stage_selected_for_deletion(false);
         Ok(None)
       },
       Action::DeleteBranch => {
-        self.deleted_selected()?;
+        let result = self.deleted_selected();
+        self.maybe_handle_git_error(result.err());
         Ok(None)
       },
       Action::DeleteStagedBranches => {
-        self.delete_staged_branches()?;
+        let result = self.delete_staged_branches();
+        self.maybe_handle_git_error(result.err());
         Ok(None)
       },
       _ => Ok(None),
@@ -423,6 +428,7 @@ impl Component for GitBranchList {
       self.render_list(f, layout[0]);
       self.render_error(f, layout[1]);
       self.render_footer(f, layout[2]);
+      return Ok(());
     }
 
     let layout = Layout::new(Direction::Vertical, [Constraint::Fill(1), Constraint::Length(1)]).margin(1).split(area);
