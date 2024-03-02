@@ -8,6 +8,8 @@ pub enum Action {
   DeleteBranch,
   DeleteStagedBranches,
   Error(String),
+  StartInputMode,
+  EndInputMod,
   Quit,
   InitNewBranch,
   UpdateNewBranchName(KeyEvent),

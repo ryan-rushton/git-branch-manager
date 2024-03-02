@@ -97,6 +97,8 @@ impl App {
           log::debug!("{action:?}");
         }
         match action {
+          Action::StartInputMode => self.mode = Mode::Input,
+          Action::EndInputMod => self.mode = Mode::GitBranchManager,
           Action::Tick => {
             self.last_tick_key_events.drain(..);
           },

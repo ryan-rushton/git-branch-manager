@@ -5,7 +5,7 @@ use ratatui::{
   text::{Line, Span},
   widgets::{Block, Borders, List, ListItem, ListState},
 };
-use tui_textarea::{Input, TextArea};
+use tui_textarea::{CursorMove, Input, TextArea};
 
 use crate::{
   action::Action,
@@ -23,7 +23,11 @@ struct BranchItem {
 
 impl BranchItem {
   pub fn render(&self) -> ListItem {
-    let mut item = ListItem::new(self.branch.name.clone());
+    let mut text = self.branch.name.clone();
+    if self.branch.is_head {
+      text += " (HEAD)";
+    }
+    let mut item = ListItem::new(text);
     if self.staged_for_deletion {
       item = item.style(Color::Red);
     }
@@ -122,11 +126,15 @@ impl GitBranchList {
       return Ok(());
     }
     let selected_index = self.state.selected().unwrap();
-    let selected = self.branches.get_mut(selected_index);
-    if selected.is_none() {
+    let maybe_selected = self.branches.get_mut(selected_index);
+    if maybe_selected.is_none() {
       return Ok(());
     }
-    selected.unwrap().stage_for_deletion(stage);
+    let selected = maybe_selected.unwrap();
+    if selected.branch.is_head {
+      return Ok(());
+    }
+    selected.stage_for_deletion(stage);
     Ok(())
   }
 
@@ -147,7 +155,7 @@ impl GitBranchList {
     Ok(())
   }
 
-  pub fn delete_marked_branches(&mut self) -> Result<(), Error> {
+  pub fn delete_staged_branches(&mut self) -> Result<(), Error> {
     let mut indexes_to_delete: Vec<usize> = Vec::new();
 
     for branch_index in 0..self.branches.len() {
@@ -174,19 +182,30 @@ impl GitBranchList {
 
   fn validate_branch_name(&mut self) {
     if self.text_input.lines().first().is_none() {
-      self.text_input.set_style(Style::default().fg(Color::LightRed));
-      self.input_state.is_valid = Some(false);
-    } else {
-      self.text_input.set_style(Style::default().fg(Color::LightGreen));
-      self.input_state.is_valid = Some(true);
+      return;
     }
+    let proposed_name = self.text_input.lines().first().unwrap();
+    let is_valid = self.repo.validate_branch_name(proposed_name);
+    if is_valid.is_err() || !is_valid.unwrap() {
+      self.text_input.set_style(Style::default().fg(Color::LightRed));
+      self.text_input.set_block(Block::default().borders(Borders::ALL));
+      self.input_state.is_valid = Some(false);
+      return;
+    }
+    self.text_input.set_style(Style::default().fg(Color::LightGreen));
+    self.text_input.set_block(Block::default().borders(Borders::ALL));
+    self.input_state.is_valid = Some(true);
   }
 
   fn create_branch(&mut self, name: String) -> Result<(), Error> {
-    let branch = GitBranch { name: name.clone() };
+    let branch = GitBranch { name: name.clone(), is_head: false };
     self.repo.create_branch(&branch)?;
     self.branches.push(BranchItem { branch, staged_for_deletion: false });
     self.branches.sort_by(|a, b| a.branch.name.cmp(&b.branch.name));
+    self.repo.checkout_branch_from_name(&name)?;
+    for existing_branch in self.branches.iter_mut() {
+      existing_branch.branch.is_head = existing_branch.branch.name == name;
+    }
     let created_index = self.branches.iter().position(|b| b.branch.name == name);
     self.state.select(created_index);
     Ok(())
@@ -201,22 +220,26 @@ impl GitBranchList {
       KeyEvent { code: KeyCode::Esc, modifiers: KeyModifiers::NONE, kind: _, state: _ } => {
         self.mode = Mode::Selection;
         self.input_state.value = None;
-        self.text_input.input(Input::from(key_event));
+        // purposely don't send the key, we want to delete the line
+        self.text_input.move_cursor(CursorMove::Head);
+        self.text_input.delete_line_by_end();
         None
       },
-      KeyEvent { code: KeyCode::Enter, modifiers: KeyModifiers::NONE, kind: _, state: _ } => {
+      KeyEvent { code: KeyCode::Enter, modifiers: _, kind: _, state: _ } => {
         if self.input_state.is_valid.is_some() && !self.input_state.is_valid.unwrap() {
           // TODO report error
           return None;
         }
         self.mode = Mode::Selection;
         let new_branch_name = self.get_first_input_line();
-        self.text_input.input(Input::from(key_event));
+        // purposely don't send the key, we want to delete the line
+        self.text_input.move_cursor(CursorMove::Head);
+        self.text_input.delete_line_by_end();
         if new_branch_name.is_some() {
           return Some(Action::CreateBranch(new_branch_name.unwrap()));
         }
 
-        return None;
+        Some(Action::EndInputMod)
       },
       _ => {
         if self.text_input.input(Input::from(key_event)) {
@@ -226,7 +249,7 @@ impl GitBranchList {
             self.input_state.value = Some(new_branch_name.unwrap());
           }
         }
-        None
+        Some(Action::EndInputMod)
       },
     }
   }
@@ -244,8 +267,6 @@ impl GitBranchList {
   }
 
   fn render_input(&mut self, f: &mut Frame<'_>, area: Rect) {
-    self.text_input.set_style(Style::default().fg(Color::White));
-    self.text_input.set_block(Block::default().borders(Borders::ALL));
     let input = self.text_input.widget();
     f.render_widget(input, area);
   }
@@ -253,10 +274,11 @@ impl GitBranchList {
   fn render_footer(&mut self, f: &mut Frame<'_>, area: Rect) {
     let mut commands = vec![Span::raw("q: Quit")];
     commands.push(Span::raw(" | c: Create branch"));
-    if self.get_selected_branch().is_some() && self.get_selected_branch().unwrap().staged_for_deletion {
+    let selected = self.get_selected_branch();
+    if selected.is_some() && selected.unwrap().staged_for_deletion {
       commands.push(Span::raw(" | d: Delete"));
       commands.push(Span::raw(" | ⇧ + d: Unstage for deletion"));
-    } else {
+    } else if selected.is_some() && !selected.unwrap().branch.is_head {
       commands.push(Span::raw(" | d: Stage for deletion"));
     }
     commands.push(Span::raw(" | ^ + d: Delete all staged branches"));
@@ -312,13 +334,15 @@ impl Component for GitBranchList {
       },
       Action::InitNewBranch => {
         self.mode = Mode::Input;
-        Ok(None)
+        self.text_input.set_style(Style::default().fg(Color::White));
+        self.text_input.set_block(Block::default().borders(Borders::ALL));
+        Ok(Some(Action::StartInputMode))
       },
       Action::UpdateNewBranchName(key_event) => Ok(self.handle_input_key_event(key_event)),
       Action::CreateBranch(name) => {
         self.mode = Mode::Selection;
         self.create_branch(name)?;
-        Ok(None)
+        Ok(Some(Action::EndInputMod))
       },
       Action::StageBranchForDeletion => {
         self.stage_selected_for_deletion(true)?;
@@ -333,7 +357,7 @@ impl Component for GitBranchList {
         Ok(None)
       },
       Action::DeleteStagedBranches => {
-        self.delete_marked_branches()?;
+        self.delete_staged_branches()?;
         Ok(None)
       },
       _ => Ok(None),
