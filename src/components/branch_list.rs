@@ -271,7 +271,7 @@ impl GitBranchList {
 
   fn maybe_handle_git_error(&mut self, err: Option<git2::Error>) {
     if err.is_some() {
-      self.error = Some(format!("{}", err.unwrap().message()));
+      self.error = Some(err.unwrap().message().to_string());
     }
   }
 
