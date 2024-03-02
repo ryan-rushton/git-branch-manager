@@ -24,7 +24,7 @@ pub struct App {
 
 impl App {
   pub fn new(tick_rate: f64, frame_rate: f64) -> Result<Self> {
-    let branch_list = GitBranchList::new();
+    let branch_list = GitBranchList::default();
     let config = Config::new()?;
     let mode = Mode::GitBranchManager;
     Ok(Self {
@@ -97,6 +97,8 @@ impl App {
           log::debug!("{action:?}");
         }
         match action {
+          Action::StartInputMode => self.mode = Mode::Input,
+          Action::EndInputMod => self.mode = Mode::GitBranchManager,
           Action::Tick => {
             self.last_tick_key_events.drain(..);
           },

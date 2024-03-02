@@ -2,6 +2,6 @@ use thiserror::Error;
 
 #[derive(Debug, Error)]
 pub enum Error {
-  #[error("git error: {0}")]
+  #[error(transparent)]
   Git(#[from] git2::Error),
 }
