@@ -120,7 +120,7 @@ impl GitBranchList {
     let selected_index = self.state.selected()?;
     self.branches.get(selected_index)
   }
-  
+
   fn checkout_selected(&mut self) -> Result<(), Error> {
     let maybe_selected = self.get_selected_branch();
     if maybe_selected.is_none() {
@@ -312,19 +312,19 @@ impl Component for GitBranchList {
       KeyEvent { code: KeyCode::Up, modifiers: KeyModifiers::NONE, kind: _, state: _ } => {
         Ok(Some(Action::SelectPreviousBranch))
       },
-      KeyEvent { code: KeyCode::Char('c'), modifiers: KeyModifiers::SHIFT, kind: _, state: _ } => {
+      KeyEvent { code: KeyCode::Char('c' | 'C'), modifiers: KeyModifiers::SHIFT, kind: _, state: _ } => {
         Ok(Some(Action::InitNewBranch))
       },
-      KeyEvent { code: KeyCode::Char('c'), modifiers: KeyModifiers::NONE, kind: _, state: _ } => {
+      KeyEvent { code: KeyCode::Char('c' | 'C'), modifiers: KeyModifiers::NONE, kind: _, state: _ } => {
         Ok(Some(Action::CheckoutSelectedBranch))
       },
-      KeyEvent { code: KeyCode::Char('d') | KeyCode::Char('D'), modifiers: KeyModifiers::SHIFT, kind: _, state: _ } => {
+      KeyEvent { code: KeyCode::Char('d' | 'D'), modifiers: KeyModifiers::SHIFT, kind: _, state: _ } => {
         Ok(Some(Action::UnstageBranchForDeletion))
       },
-      KeyEvent { code: KeyCode::Char('d'), modifiers: KeyModifiers::CONTROL, kind: _, state: _ } => {
+      KeyEvent { code: KeyCode::Char('d' | 'D'), modifiers: KeyModifiers::CONTROL, kind: _, state: _ } => {
         Ok(Some(Action::DeleteStagedBranches))
       },
-      KeyEvent { code: KeyCode::Char('d'), modifiers: KeyModifiers::NONE, kind: _, state: _ } => {
+      KeyEvent { code: KeyCode::Char('d' | 'D'), modifiers: KeyModifiers::NONE, kind: _, state: _ } => {
         if self.get_selected_branch().is_none() {
           return Ok(None);
         }
