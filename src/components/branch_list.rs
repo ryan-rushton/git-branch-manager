@@ -18,17 +18,21 @@ use crate::{
 struct BranchItem {
   branch: GitBranch,
   staged_for_deletion: bool,
+  staged_for_creation: bool,
 }
 
 impl BranchItem {
-  pub fn render(&self) -> ListItem {
+  pub fn render(&self, is_valid: bool) -> ListItem {
     let mut text = self.branch.name.clone();
     if self.branch.is_head {
       text += " (HEAD)";
     }
     let mut item = ListItem::new(text);
     if self.staged_for_deletion {
-      item = item.style(Color::Red);
+      item = item.style(Color::LightRed);
+    }
+    if self.staged_for_creation {
+      item = item.style(if is_valid { Color::LightGreen } else { Color::LightRed });
     }
     item
   }
@@ -74,7 +78,7 @@ impl GitBranchList {
       .local_branches()
       .unwrap()
       .iter()
-      .map(|branch| BranchItem { branch: branch.clone(), staged_for_deletion: false })
+      .map(|branch| BranchItem { branch: branch.clone(), staged_for_deletion: false, staged_for_creation: false })
       .collect();
     let text_input = TextArea::default();
     GitBranchList {
@@ -215,7 +219,7 @@ impl GitBranchList {
   fn create_branch(&mut self, name: String) -> Result<(), git2::Error> {
     let branch = GitBranch { name: name.clone(), is_head: false };
     self.repo.create_branch(&branch)?;
-    self.branches.push(BranchItem { branch, staged_for_deletion: false });
+    self.branches.push(BranchItem { branch, staged_for_deletion: false, staged_for_creation: false });
     self.branches.sort_by(|a, b| a.branch.name.cmp(&b.branch.name));
     self.repo.checkout_branch_from_name(&name)?;
     for existing_branch in self.branches.iter_mut() {
@@ -227,7 +231,11 @@ impl GitBranchList {
   }
 
   fn get_first_input_line(&self) -> Option<String> {
-    Some(String::from(self.text_input.lines().first()?))
+    let input = String::from(self.text_input.lines().first()?.trim());
+    if input.is_empty() {
+      return None;
+    }
+    Some(input)
   }
 
   fn handle_input_key_event(&mut self, key_event: KeyEvent) -> Option<Action> {
@@ -276,7 +284,22 @@ impl GitBranchList {
   }
 
   fn render_list(&mut self, f: &mut Frame<'_>, area: Rect) {
-    let render_items: Vec<ListItem> = self.branches.iter().map(|git_branch| git_branch.render()).collect();
+    let mut branches = self.branches.clone();
+    if self.get_first_input_line().is_some() {
+      let content = self.get_first_input_line().unwrap();
+      branches.push(BranchItem {
+        branch: GitBranch { name: content, is_head: false },
+        staged_for_creation: true,
+        staged_for_deletion: false,
+      })
+    }
+
+    branches.sort_by(|a, b| a.branch.name.cmp(&b.branch.name));
+
+    let render_items: Vec<ListItem> = branches
+      .iter()
+      .map(|git_branch| git_branch.render(self.repo.validate_branch_name(&git_branch.branch.name).unwrap_or(false)))
+      .collect();
     let list = List::new(render_items)
       .block(Block::default().title("Local Branches").borders(Borders::ALL))
       .style(Style::default().fg(Color::White))
@@ -304,17 +327,25 @@ impl GitBranchList {
 
   fn render_footer(&mut self, f: &mut Frame<'_>, area: Rect) {
     let mut commands = vec![Span::raw("q: Quit")];
-    commands.push(Span::raw(" | ⇧ + c: Create branch"));
+    commands.push(Span::raw(" | ⇧ + c: Checkout new"));
     let selected = self.get_selected_branch();
     if selected.is_some() && selected.unwrap().staged_for_deletion {
       commands.push(Span::raw(" | d: Delete"));
       commands.push(Span::raw(" | ⇧ + d: Unstage for deletion"));
-    } else if selected.is_some() && !selected.unwrap().branch.is_head {
+    }
+
+    if selected.is_some() && !selected.unwrap().branch.is_head {
       commands.push(Span::raw(" | d: Stage for deletion"));
-    } else if selected.is_some() {
+    }
+
+    if selected.is_some() {
       commands.push(Span::raw(" | c: Checkout"));
     }
-    commands.push(Span::raw(" | ^ + d: Delete all staged branches"));
+
+    if self.branches.iter().any(|b| b.staged_for_deletion) {
+      commands.push(Span::raw(" | ^ + d: Delete all staged branches"));
+    }
+
     let footer = Line::from(commands);
     f.render_widget(footer, area);
   }
