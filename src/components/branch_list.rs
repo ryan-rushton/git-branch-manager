@@ -2,55 +2,28 @@ use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use ratatui::{
   layout::{Constraint, Direction, Layout, Rect},
   style::{Color, Modifier, Style},
-  text::{Line, Span, Text},
+  text::Text,
   widgets::{Block, Borders, List, ListItem, ListState, Paragraph},
 };
-use tui_textarea::{CursorMove, Input, TextArea};
 
 use crate::{
   action::Action,
-  components::Component,
+  components::{
+    branch_list::{branch_input::BranchInput, branch_item::BranchItem, instruction_footer::InstructionFooter},
+    Component,
+  },
   git::repo::{GitBranch, GitRepo},
   tui::Frame,
 };
 
-#[derive(Debug, Default, Clone, PartialEq, Eq)]
-struct BranchItem {
-  branch: GitBranch,
-  staged_for_deletion: bool,
-  staged_for_creation: bool,
-}
-
-impl BranchItem {
-  pub fn render(&self, is_valid: bool) -> ListItem {
-    let mut text = self.branch.name.clone();
-    if self.branch.is_head {
-      text += " (HEAD)";
-    }
-    let mut item = ListItem::new(text);
-    if self.staged_for_deletion {
-      item = item.style(Color::LightRed);
-    }
-    if self.staged_for_creation {
-      item = item.style(if is_valid { Color::LightGreen } else { Color::LightRed });
-    }
-    item
-  }
-
-  pub fn stage_for_deletion(&mut self, stage: bool) {
-    self.staged_for_deletion = stage;
-  }
-}
+mod branch_input;
+mod branch_item;
+mod instruction_footer;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 enum Mode {
   Selection,
   Input,
-}
-
-struct InputState {
-  value: Option<String>,
-  is_valid: Option<bool>,
 }
 
 pub struct GitBranchList {
@@ -60,38 +33,29 @@ pub struct GitBranchList {
   // List state
   branches: Vec<BranchItem>,
   list_state: ListState,
-  // Input state
-  text_input: TextArea<'static>,
-  input_state: InputState,
+  // Components
+  branch_input: BranchInput,
+  instruction_footer: InstructionFooter,
 }
 
 impl Default for GitBranchList {
   fn default() -> Self {
-    GitBranchList::new()
-  }
-}
-
-impl GitBranchList {
-  pub fn new() -> Self {
     let repo = GitRepo::from_cwd().unwrap();
-    let branches: Vec<BranchItem> = repo
-      .local_branches()
-      .unwrap()
-      .iter()
-      .map(|branch| BranchItem { branch: branch.clone(), staged_for_deletion: false, staged_for_creation: false })
-      .collect();
-    let text_input = TextArea::default();
+    let branches: Vec<BranchItem> =
+      repo.local_branches().unwrap().iter().map(|branch| BranchItem::new(branch.clone())).collect();
     GitBranchList {
       repo,
       mode: Mode::Selection,
       error: None,
       branches,
       list_state: ListState::default().with_selected(Some(0)),
-      text_input,
-      input_state: InputState { value: None, is_valid: None },
+      branch_input: BranchInput::new(),
+      instruction_footer: InstructionFooter::default(),
     }
   }
+}
 
+impl GitBranchList {
   pub fn select_previous(&mut self) {
     if self.list_state.selected().is_none() {
       self.list_state.select(Some(0));
@@ -201,25 +165,10 @@ impl GitBranchList {
     Ok(())
   }
 
-  fn validate_branch_name(&mut self) {
-    if self.text_input.lines().first().is_none() {
-      return;
-    }
-    let proposed_name = self.text_input.lines().first().unwrap();
-    let is_valid = self.repo.validate_branch_name(proposed_name);
-    if is_valid.is_err() || !is_valid.unwrap() {
-      self.text_input.set_style(Style::default().fg(Color::LightRed));
-      self.input_state.is_valid = Some(false);
-      return;
-    }
-    self.text_input.set_style(Style::default().fg(Color::LightGreen));
-    self.input_state.is_valid = Some(true);
-  }
-
   fn create_branch(&mut self, name: String) -> Result<(), git2::Error> {
-    let branch = GitBranch { name: name.clone(), is_head: false };
+    let branch = GitBranch { name: name.clone(), is_head: false, upstream: None };
     self.repo.create_branch(&branch)?;
-    self.branches.push(BranchItem { branch, staged_for_deletion: false, staged_for_creation: false });
+    self.branches.push(BranchItem::new(branch));
     self.branches.sort_by(|a, b| a.branch.name.cmp(&b.branch.name));
     self.repo.checkout_branch_from_name(&name)?;
     for existing_branch in self.branches.iter_mut() {
@@ -230,53 +179,6 @@ impl GitBranchList {
     Ok(())
   }
 
-  fn get_first_input_line(&self) -> Option<String> {
-    let input = String::from(self.text_input.lines().first()?.trim());
-    if input.is_empty() {
-      return None;
-    }
-    Some(input)
-  }
-
-  fn handle_input_key_event(&mut self, key_event: KeyEvent) -> Option<Action> {
-    match key_event {
-      KeyEvent { code: KeyCode::Esc, modifiers: KeyModifiers::NONE, kind: _, state: _ } => {
-        self.mode = Mode::Selection;
-        self.input_state.value = None;
-        // purposely don't send the key, we want to delete the line
-        self.text_input.move_cursor(CursorMove::Head);
-        self.text_input.delete_line_by_end();
-        None
-      },
-      KeyEvent { code: KeyCode::Enter, modifiers: _, kind: _, state: _ } => {
-        if self.input_state.is_valid.is_some() && !self.input_state.is_valid.unwrap() {
-          // TODO report error
-          return None;
-        }
-        self.mode = Mode::Selection;
-        let new_branch_name = self.get_first_input_line();
-        // purposely don't send the key, we want to delete the line
-        self.text_input.move_cursor(CursorMove::Head);
-        self.text_input.delete_line_by_end();
-        if let Some(name) = new_branch_name {
-          return Some(Action::CreateBranch(name));
-        }
-
-        Some(Action::EndInputMod)
-      },
-      _ => {
-        if self.text_input.input(Input::from(key_event)) {
-          self.validate_branch_name();
-          let new_branch_name = self.get_first_input_line();
-          if new_branch_name.is_some() {
-            self.input_state.value = new_branch_name;
-          }
-        }
-        Some(Action::EndInputMod)
-      },
-    }
-  }
-
   fn maybe_handle_git_error(&mut self, err: Option<git2::Error>) {
     if err.is_some() {
       self.error = Some(err.unwrap().message().to_string());
@@ -284,11 +186,12 @@ impl GitBranchList {
   }
 
   fn render_list(&mut self, f: &mut Frame<'_>, area: Rect) {
+    // TODO don't clone, figure out the index to place the pseudo branch in the list
     let mut branches = self.branches.clone();
-    if self.get_first_input_line().is_some() {
-      let content = self.get_first_input_line().unwrap();
+    if self.branch_input.get_text().is_some() {
+      let content = self.branch_input.get_text().unwrap();
       branches.push(BranchItem {
-        branch: GitBranch { name: content, is_head: false },
+        branch: GitBranch::new(content),
         staged_for_creation: true,
         staged_for_deletion: false,
       })
@@ -310,11 +213,6 @@ impl GitBranchList {
     f.render_stateful_widget(list, area, &mut self.list_state);
   }
 
-  fn render_input(&mut self, f: &mut Frame<'_>, area: Rect) {
-    let input = self.text_input.widget();
-    f.render_widget(input, area);
-  }
-
   fn render_error(&mut self, f: &mut Frame<'_>, area: Rect) {
     if self.error.is_none() {
       return;
@@ -323,31 +221,6 @@ impl GitBranchList {
     let text = Text::from(error_message);
     let component = Paragraph::new(text).block(Block::default()).style(Style::from(Color::Red));
     f.render_widget(component, area);
-  }
-
-  fn render_footer(&mut self, f: &mut Frame<'_>, area: Rect) {
-    let mut commands = vec![Span::raw("q: Quit")];
-    commands.push(Span::raw(" | ⇧ + c: Checkout new"));
-    let selected = self.get_selected_branch();
-    if selected.is_some() && selected.unwrap().staged_for_deletion {
-      commands.push(Span::raw(" | d: Delete"));
-      commands.push(Span::raw(" | ⇧ + d: Unstage for deletion"));
-    }
-
-    if selected.is_some() && !selected.unwrap().branch.is_head {
-      commands.push(Span::raw(" | d: Stage for deletion"));
-    }
-
-    if selected.is_some() {
-      commands.push(Span::raw(" | c: Checkout"));
-    }
-
-    if self.branches.iter().any(|b| b.staged_for_deletion) {
-      commands.push(Span::raw(" | ^ + d: Delete all staged branches"));
-    }
-
-    let footer = Line::from(commands);
-    f.render_widget(footer, area);
   }
 }
 
@@ -401,11 +274,14 @@ impl Component for GitBranchList {
       },
       Action::InitNewBranch => {
         self.mode = Mode::Input;
-        self.text_input.set_style(Style::default().fg(Color::White));
-        self.text_input.set_block(Block::default().borders(Borders::ALL));
+        self.branch_input.init_style();
         Ok(Some(Action::StartInputMode))
       },
-      Action::UpdateNewBranchName(key_event) => Ok(self.handle_input_key_event(key_event)),
+      Action::EndInputMod => {
+        self.mode = Mode::Selection;
+        Ok(None)
+      },
+      Action::UpdateNewBranchName(key_event) => Ok(self.branch_input.handle_key_event(key_event, &self.repo)),
       Action::CheckoutSelectedBranch => {
         let result = self.checkout_selected();
         self.maybe_handle_git_error(result.err());
@@ -446,8 +322,8 @@ impl Component for GitBranchList {
           .margin(1)
           .split(area);
       self.render_list(f, layout[0]);
-      self.render_input(f, layout[1]);
-      self.render_footer(f, layout[2]);
+      self.branch_input.render(f, layout[1]);
+      self.instruction_footer.render(f, layout[2], &self.branches, self.get_selected_branch());
       return Ok(());
     }
 
@@ -458,13 +334,13 @@ impl Component for GitBranchList {
           .split(area);
       self.render_list(f, layout[0]);
       self.render_error(f, layout[1]);
-      self.render_footer(f, layout[2]);
+      self.instruction_footer.render(f, layout[2], &self.branches, self.get_selected_branch());
       return Ok(());
     }
 
     let layout = Layout::new(Direction::Vertical, [Constraint::Fill(1), Constraint::Length(1)]).margin(1).split(area);
     self.render_list(f, layout[0]);
-    self.render_footer(f, layout[1]);
+    self.instruction_footer.render(f, layout[1], &self.branches, self.get_selected_branch());
 
     Ok(())
   }

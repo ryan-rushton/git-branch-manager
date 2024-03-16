@@ -3,9 +3,27 @@ use std::env::current_dir;
 use git2::{Branch, BranchType, Error, Repository};
 
 #[derive(Debug, Default, Clone, PartialEq, Eq)]
+pub struct GitRemoteBranch {
+  pub name: String,
+}
+
+impl GitRemoteBranch {
+  pub fn new(name: String) -> Self {
+    GitRemoteBranch { name }
+  }
+}
+
+#[derive(Debug, Default, Clone, PartialEq, Eq)]
 pub struct GitBranch {
   pub name: String,
   pub is_head: bool,
+  pub upstream: Option<GitRemoteBranch>,
+}
+
+impl GitBranch {
+  pub fn new(name: String) -> Self {
+    GitBranch { name, is_head: false, upstream: None }
+  }
 }
 
 pub struct GitRepo {
@@ -22,7 +40,8 @@ impl GitRepo {
   fn create_git_branch(&self, result: Result<(Branch, BranchType), Error>) -> Option<GitBranch> {
     let (branch, _branch_type) = result.ok()?;
     let name = branch.name().ok()??;
-    Some(GitBranch { name: String::from(name), is_head: branch.is_head() })
+    let upstream = extract_upstream_branch(&branch);
+    Some(GitBranch { name: String::from(name), is_head: branch.is_head(), upstream })
   }
 
   pub fn local_branches(&self) -> Result<Vec<GitBranch>, Error> {
@@ -79,4 +98,10 @@ impl GitRepo {
     }
     Ok(())
   }
+}
+
+fn extract_upstream_branch(local_branch: &Branch) -> Option<GitRemoteBranch> {
+  let upstream_branch = local_branch.upstream().ok()?;
+  let upstream_name = upstream_branch.name().ok()??;
+  Some(GitRemoteBranch { name: String::from(upstream_name) })
 }
