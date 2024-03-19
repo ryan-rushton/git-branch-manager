@@ -34,7 +34,7 @@ pub struct GitRepo {
 impl GitRepo {
   pub fn from_cwd() -> Result<GitRepo, Error> {
     let path_buf = current_dir().expect("Unable to get current working directory");
-    let repo = Repository::open(path_buf.as_path())?;
+    let repo = Repository::discover(path_buf.as_path())?;
     Ok(GitRepo { repo })
   }
 
