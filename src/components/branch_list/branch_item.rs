@@ -11,14 +11,15 @@ pub struct BranchItem {
   pub branch: GitBranch,
   pub staged_for_deletion: bool,
   pub staged_for_creation: bool,
+  pub is_valid_name: bool,
 }
 
 impl BranchItem {
-  pub fn new(branch: GitBranch) -> Self {
-    BranchItem { branch, staged_for_deletion: false, staged_for_creation: false }
+  pub fn new(branch: GitBranch, is_valid_name: bool) -> Self {
+    BranchItem { branch, staged_for_deletion: false, staged_for_creation: false, is_valid_name }
   }
 
-  pub fn render(&self, is_valid: bool) -> ListItem {
+  pub fn render(&self) -> ListItem {
     let mut text = Line::default();
     let mut parts = Vec::new();
     let mut name = Span::styled(self.branch.name.clone(), Style::default());
@@ -26,7 +27,7 @@ impl BranchItem {
       name = name.style(Style::default().fg(Color::Red));
     }
     if self.staged_for_creation {
-      name = name.style(Style::default().fg(if is_valid { Color::LightGreen } else { Color::LightRed }));
+      name = name.style(Style::default().fg(if self.is_valid_name { Color::LightGreen } else { Color::LightRed }));
     }
     parts.push(name);
     if self.branch.is_head {

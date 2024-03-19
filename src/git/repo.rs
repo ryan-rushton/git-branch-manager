@@ -1,6 +1,7 @@
 use std::env::current_dir;
 
 use git2::{Branch, BranchType, Error, Repository};
+use log::{error, info};
 
 #[derive(Debug, Default, Clone, PartialEq, Eq)]
 pub struct GitRemoteBranch {
@@ -51,11 +52,22 @@ impl GitRepo {
   }
 
   pub fn checkout_branch_from_name(&self, branch_name: &String) -> Result<(), Error> {
-    let obj = self.repo.revparse_single(&("refs/heads/".to_owned() + branch_name)).unwrap();
+    info!("Checking out branch {}", branch_name);
+    let branch = self.repo.find_branch(branch_name, BranchType::Local)?;
+    let branch_ref = branch.get();
+    info!("Found branch with ref {}", branch_ref.name().unwrap());
 
-    self.repo.checkout_tree(&obj, None)?;
-
-    self.repo.set_head(&("refs/heads/".to_owned() + branch_name))?;
+    let tree = branch_ref.peel_to_tree()?;
+    let checkout_result = self.repo.checkout_tree(tree.as_object(), None);
+    if checkout_result.is_err() {
+      error!("Failed to checkout tree: {}", checkout_result.unwrap_err());
+      return Err(Error::from_str("Failed to checkout tree"));
+    }
+    let set_head_result = self.repo.set_head(branch_ref.name().unwrap());
+    if set_head_result.is_err() {
+      error!("Failed to set head to: {}", branch_ref.name().unwrap());
+      return Err(Error::from_str("Failed to set HEAD"));
+    }
     Ok(())
   }
 
@@ -70,13 +82,17 @@ impl GitRepo {
   }
 
   pub fn create_branch(&self, to_create: &GitBranch) -> Result<(), Error> {
+    info!("Creating branch {}", to_create.name);
     let head = self.repo.head()?;
     let head_oid = head.target();
     if head_oid.is_none() {
+      error!("Attempted to create a branch from a symbolic reference: {}", head_oid.unwrap());
       return Err(Error::from_str("Attempted to create a branch from a symbolic reference"));
     }
     let commit = self.repo.find_commit(head.target().unwrap())?;
+    info!("Using commit for new branch {}", commit.id());
     self.repo.branch(&to_create.name, &commit, false)?;
+    info!("Successfully created branch {}", to_create.name);
     Ok(())
   }
 
