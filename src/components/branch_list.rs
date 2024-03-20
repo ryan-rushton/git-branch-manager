@@ -1,4 +1,5 @@
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+use log::error;
 use ratatui::{
   layout::{Constraint, Direction, Layout, Rect},
   style::{Color, Modifier, Style},
@@ -33,6 +34,7 @@ pub struct GitBranchList {
   // List state
   branches: Vec<BranchItem>,
   list_state: ListState,
+  selected_index: usize,
   // Components
   branch_input: BranchInput,
   instruction_footer: InstructionFooter,
@@ -41,14 +43,16 @@ pub struct GitBranchList {
 impl Default for GitBranchList {
   fn default() -> Self {
     let repo = GitRepo::from_cwd().unwrap();
+    // Assume branch names are all valid as they come from git
     let branches: Vec<BranchItem> =
-      repo.local_branches().unwrap().iter().map(|branch| BranchItem::new(branch.clone())).collect();
+      repo.local_branches().unwrap().iter().map(|branch| BranchItem::new(branch.clone(), true)).collect();
     GitBranchList {
       repo,
       mode: Mode::Selection,
       error: None,
       branches,
-      list_state: ListState::default().with_selected(Some(0)),
+      list_state: ListState::default(),
+      selected_index: 0,
       branch_input: BranchInput::new(),
       instruction_footer: InstructionFooter::default(),
     }
@@ -57,38 +61,23 @@ impl Default for GitBranchList {
 
 impl GitBranchList {
   pub fn select_previous(&mut self) {
-    if self.list_state.selected().is_none() {
-      self.list_state.select(Some(0));
-    }
-
-    let selected = self.list_state.selected().unwrap();
-    let final_index = self.branches.len() - 1;
-
-    if selected == 0 {
-      self.list_state.select(Some(final_index));
+    if self.selected_index == 0 {
+      self.selected_index = self.branches.len() - 1;
       return;
     }
-    self.list_state.select(Some(selected - 1))
+    self.selected_index -= 1;
   }
 
   pub fn select_next(&mut self) {
-    if self.list_state.selected().is_none() {
-      self.list_state.select(Some(0));
-    }
-
-    let selected = self.list_state.selected().unwrap();
-    let final_index = self.branches.len() - 1;
-
-    if selected == final_index {
-      self.list_state.select(Some(0));
+    if self.selected_index == self.branches.len() - 1 {
+      self.selected_index = 0;
       return;
     }
-    self.list_state.select(Some(selected + 1))
+    self.selected_index += 1;
   }
 
   fn get_selected_branch(&self) -> Option<&BranchItem> {
-    let selected_index = self.list_state.selected()?;
-    self.branches.get(selected_index)
+    self.branches.get(self.selected_index)
   }
 
   fn checkout_selected(&mut self) -> Result<(), git2::Error> {
@@ -105,11 +94,7 @@ impl GitBranchList {
   }
 
   pub fn stage_selected_for_deletion(&mut self, stage: bool) {
-    if self.list_state.selected().is_none() {
-      return;
-    }
-    let selected_index = self.list_state.selected().unwrap();
-    let maybe_selected = self.branches.get_mut(selected_index);
+    let maybe_selected = self.branches.get_mut(self.selected_index);
     if maybe_selected.is_none() {
       return;
     }
@@ -121,11 +106,7 @@ impl GitBranchList {
   }
 
   pub fn deleted_selected(&mut self) -> Result<(), git2::Error> {
-    if self.list_state.selected().is_none() {
-      return Ok(());
-    }
-    let selected_index = self.list_state.selected().unwrap();
-    let selected = self.branches.get(selected_index);
+    let selected = self.branches.get(self.selected_index);
     if selected.is_none() {
       return Ok(());
     }
@@ -133,9 +114,9 @@ impl GitBranchList {
     if delete_result.is_err() {
       return Ok(());
     }
-    self.branches.remove(selected_index);
-    if selected_index >= self.branches.len() {
-      self.list_state.select(Some(selected_index - 1));
+    self.branches.remove(self.selected_index);
+    if self.selected_index >= self.branches.len() {
+      self.selected_index -= 1;
     }
     Ok(())
   }
@@ -168,41 +149,43 @@ impl GitBranchList {
   fn create_branch(&mut self, name: String) -> Result<(), git2::Error> {
     let branch = GitBranch { name: name.clone(), is_head: false, upstream: None };
     self.repo.create_branch(&branch)?;
-    self.branches.push(BranchItem::new(branch));
+    self.branches.push(BranchItem::new(branch, true));
     self.branches.sort_by(|a, b| a.branch.name.cmp(&b.branch.name));
     self.repo.checkout_branch_from_name(&name)?;
     for existing_branch in self.branches.iter_mut() {
       existing_branch.branch.is_head = existing_branch.branch.name == name;
     }
-    let created_index = self.branches.iter().position(|b| b.branch.name == name);
-    self.list_state.select(created_index);
+    self.selected_index = self.branches.iter().position(|b| b.branch.name == name).unwrap_or(0);
     Ok(())
   }
 
   fn maybe_handle_git_error(&mut self, err: Option<git2::Error>) {
     if err.is_some() {
-      self.error = Some(err.unwrap().message().to_string());
+      let error = err.unwrap();
+      error!("Git operation failed: {}", error);
+      self.error = Some(error.message().to_string());
     }
   }
 
   fn render_list(&mut self, f: &mut Frame<'_>, area: Rect) {
     // TODO don't clone, figure out the index to place the pseudo branch in the list
     let mut branches = self.branches.clone();
-    if self.branch_input.get_text().is_some() {
-      let content = self.branch_input.get_text().unwrap();
+    let input_state = self.branch_input.input_state.clone();
+    if input_state.value.is_some() && self.mode == Mode::Input {
+      let content = input_state.value.unwrap();
       branches.push(BranchItem {
-        branch: GitBranch::new(content),
+        branch: GitBranch::new(content.clone()),
         staged_for_creation: true,
         staged_for_deletion: false,
-      })
+        is_valid_name: self.branch_input.input_state.is_valid.unwrap_or(false),
+      });
+      branches.sort_by(|a, b| a.branch.name.cmp(&b.branch.name));
+      self.list_state.select(branches.iter().position(|bi| bi.branch.name == content.clone()))
+    } else {
+      self.list_state.select(Some(self.selected_index));
     }
 
-    branches.sort_by(|a, b| a.branch.name.cmp(&b.branch.name));
-
-    let render_items: Vec<ListItem> = branches
-      .iter()
-      .map(|git_branch| git_branch.render(self.repo.validate_branch_name(&git_branch.branch.name).unwrap_or(false)))
-      .collect();
+    let render_items: Vec<ListItem> = branches.iter().map(|git_branch| git_branch.render()).collect();
     let list = List::new(render_items)
       .block(Block::default().title("Local Branches").borders(Borders::ALL))
       .style(Style::default().fg(Color::White))

@@ -8,7 +8,7 @@ use tui_textarea::{CursorMove, Input, TextArea};
 
 use crate::{action::Action, git::repo::GitRepo, tui::Frame};
 
-#[derive(Debug, Default)]
+#[derive(Debug, Default, Clone)]
 pub struct InputState {
   pub value: Option<String>,
   pub is_valid: Option<bool>,
@@ -29,7 +29,7 @@ impl BranchInput {
     self.text_input.set_block(Block::default().borders(Borders::ALL));
   }
 
-  pub fn get_text(&self) -> Option<String> {
+  fn get_text(&self) -> Option<String> {
     let input = String::from(self.text_input.lines().first()?.trim());
     if input.is_empty() {
       return None;
