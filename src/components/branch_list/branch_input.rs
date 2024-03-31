@@ -6,7 +6,7 @@ use ratatui::{
 };
 use tui_textarea::{CursorMove, Input, TextArea};
 
-use crate::{action::Action, git::repo::GitRepo, tui::Frame};
+use crate::{action::Action, git::git_repo::GitRepo, tui::Frame};
 
 #[derive(Debug, Default, Clone)]
 pub struct InputState {
@@ -37,7 +37,7 @@ impl BranchInput {
     Some(input)
   }
 
-  fn validate_branch_name(&mut self, repo: &GitRepo) {
+  fn validate_branch_name(&mut self, repo: &dyn GitRepo) {
     if self.text_input.lines().first().is_none() {
       return;
     }
@@ -52,7 +52,7 @@ impl BranchInput {
     self.input_state.is_valid = Some(true);
   }
 
-  pub fn handle_key_event(&mut self, key_event: KeyEvent, repo: &GitRepo) -> Option<Action> {
+  pub fn handle_key_event(&mut self, key_event: KeyEvent, repo: &dyn GitRepo) -> Option<Action> {
     match key_event {
       KeyEvent { code: KeyCode::Esc, modifiers: KeyModifiers::NONE, kind: _, state: _ } => {
         self.input_state.value = None;

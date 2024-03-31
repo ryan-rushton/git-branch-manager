@@ -7,6 +7,7 @@ use crate::{
   action::Action,
   components::{branch_list::GitBranchList, Component},
   config::Config,
+  git::git2_repo::Git2Repo,
   mode::Mode,
   tui,
 };
@@ -24,7 +25,8 @@ pub struct App {
 
 impl App {
   pub fn new(tick_rate: f64, frame_rate: f64) -> Result<Self> {
-    let branch_list = GitBranchList::default();
+    let repo = Box::new(Git2Repo::from_cwd().unwrap());
+    let branch_list = GitBranchList::new(repo);
     let config = Config::new()?;
     let mode = Mode::GitBranchManager;
     Ok(Self {
