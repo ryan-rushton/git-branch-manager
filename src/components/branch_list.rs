@@ -13,7 +13,7 @@ use crate::{
     branch_list::{branch_input::BranchInput, branch_item::BranchItem, instruction_footer::InstructionFooter},
     Component,
   },
-  git::repo::{GitBranch, GitRepo},
+  git::git_repo::{GitBranch, GitRepo},
   tui::Frame,
 };
 
@@ -29,7 +29,7 @@ enum Mode {
 
 pub struct GitBranchList {
   mode: Mode,
-  repo: GitRepo,
+  repo: Box<dyn GitRepo>,
   error: Option<String>,
   // List state
   branches: Vec<BranchItem>,
@@ -40,9 +40,8 @@ pub struct GitBranchList {
   instruction_footer: InstructionFooter,
 }
 
-impl Default for GitBranchList {
-  fn default() -> Self {
-    let repo = GitRepo::from_cwd().unwrap();
+impl GitBranchList {
+  pub fn new(repo: Box<dyn GitRepo>) -> Self {
     // Assume branch names are all valid as they come from git
     let branches: Vec<BranchItem> =
       repo.local_branches().unwrap().iter().map(|branch| BranchItem::new(branch.clone(), true)).collect();
@@ -57,9 +56,7 @@ impl Default for GitBranchList {
       instruction_footer: InstructionFooter::default(),
     }
   }
-}
 
-impl GitBranchList {
   pub fn select_previous(&mut self) {
     if self.selected_index == 0 {
       self.selected_index = self.branches.len() - 1;
@@ -264,7 +261,7 @@ impl Component for GitBranchList {
         self.mode = Mode::Selection;
         Ok(None)
       },
-      Action::UpdateNewBranchName(key_event) => Ok(self.branch_input.handle_key_event(key_event, &self.repo)),
+      Action::UpdateNewBranchName(key_event) => Ok(self.branch_input.handle_key_event(key_event, &*self.repo)),
       Action::CheckoutSelectedBranch => {
         let result = self.checkout_selected();
         self.maybe_handle_git_error(result.err());
