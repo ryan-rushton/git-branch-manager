@@ -57,6 +57,10 @@ impl GitBranchList {
     }
   }
 
+  pub fn clear_error(&mut self) {
+    self.error = None;
+  }
+
   pub fn select_previous(&mut self) {
     if self.selected_index == 0 {
       self.selected_index = self.branches.len() - 1;
@@ -206,6 +210,8 @@ impl GitBranchList {
 
 impl Component for GitBranchList {
   fn handle_key_events(&mut self, key: KeyEvent) -> color_eyre::Result<Option<Action>> {
+    self.clear_error();
+
     if self.mode == Mode::Input {
       return Ok(Some(Action::UpdateNewBranchName(key)));
     }
