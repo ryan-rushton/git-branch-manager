@@ -66,11 +66,19 @@ impl GitBranchList {
       self.selected_index = self.branches.len() - 1;
       return;
     }
+    if self.selected_index >= self.branches.len() {
+      self.selected_index = self.branches.len() - 1;
+      return;
+    }
     self.selected_index -= 1;
   }
 
   pub fn select_next(&mut self) {
     if self.selected_index == self.branches.len() - 1 {
+      self.selected_index = 0;
+      return;
+    }
+    if self.selected_index >= self.branches.len() {
       self.selected_index = 0;
       return;
     }
@@ -143,6 +151,11 @@ impl GitBranchList {
     indexes_to_delete.reverse();
     for index in indexes_to_delete {
       self.branches.remove(index);
+    }
+    if self.selected_index >= self.branches.len() {
+      self.selected_index = self.branches.len() - 1
+    } else if self.selected_index != 0 {
+      self.selected_index -= 1
     }
     Ok(())
   }
