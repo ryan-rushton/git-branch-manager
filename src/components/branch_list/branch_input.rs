@@ -1,7 +1,8 @@
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use ratatui::{
   layout::Rect,
-  prelude::{Color, Style},
+  prelude::Color,
+  style::Style,
   widgets::{Block, Borders},
 };
 use tui_textarea::{CursorMove, Input, TextArea};
