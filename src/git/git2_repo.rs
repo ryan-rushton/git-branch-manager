@@ -3,6 +3,7 @@ use std::env::current_dir;
 use git2::{Branch, BranchType, Error, Repository};
 use log::{error, info};
 
+use super::git_repo::GitStash;
 use crate::git::git_repo::{GitBranch, GitRemoteBranch, GitRepo};
 
 pub struct Git2Repo {
@@ -29,6 +30,16 @@ impl GitRepo for Git2Repo {
     let branches = self.repo.branches(Some(BranchType::Local))?;
     let loaded_branches: Vec<GitBranch> = branches.filter_map(|branch| self.create_git_branch(branch)).collect();
     Ok(loaded_branches)
+  }
+
+  fn stashes(&mut self) -> Result<Vec<GitStash>, Error> {
+    let mut stashes: Vec<GitStash> = vec![];
+    self.repo.stash_foreach(|index, message, stash_id| {
+      stashes.push(GitStash::new(index, String::from(message), stash_id.to_string()));
+      true
+    })?;
+
+    Ok(stashes)
   }
 
   fn checkout_branch_from_name(&self, branch_name: &str) -> Result<(), Error> {

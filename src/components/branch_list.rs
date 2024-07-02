@@ -27,7 +27,7 @@ enum Mode {
   Input,
 }
 
-pub struct GitBranchList {
+pub struct BranchList {
   mode: Mode,
   repo: Box<dyn GitRepo>,
   error: Option<String>,
@@ -40,12 +40,12 @@ pub struct GitBranchList {
   instruction_footer: InstructionFooter,
 }
 
-impl GitBranchList {
+impl BranchList {
   pub fn new(repo: Box<dyn GitRepo>) -> Self {
     // Assume branch names are all valid as they come from git
     let branches: Vec<BranchItem> =
       repo.local_branches().unwrap().iter().map(|branch| BranchItem::new(branch.clone(), true)).collect();
-    GitBranchList {
+    BranchList {
       repo,
       mode: Mode::Selection,
       error: None,
@@ -221,7 +221,7 @@ impl GitBranchList {
   }
 }
 
-impl Component for GitBranchList {
+impl Component for BranchList {
   fn handle_key_events(&mut self, key: KeyEvent) -> color_eyre::Result<Option<Action>> {
     self.clear_error();
 
