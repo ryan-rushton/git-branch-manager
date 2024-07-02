@@ -1,43 +1,53 @@
 use color_eyre::eyre::Result;
 use crossterm::event::KeyEvent;
 use ratatui::prelude::Rect;
-use tokio::sync::mpsc;
+use tokio::sync::{mpsc, mpsc::UnboundedSender};
 
 use crate::{
   action::Action,
-  components::{branch_list::GitBranchList, stash_list::StashList, Component},
+  components::{branch_list::BranchList, stash_list::StashList, Component},
   config::Config,
-  git::{git2_repo::Git2Repo},
+  git::git2_repo::Git2Repo,
   mode::Mode,
   tui,
+  tui::Tui,
 };
+
+pub enum View {
+  Branches,
+  Stashes,
+}
 
 pub struct App {
   pub config: Config,
   pub tick_rate: f64,
   pub frame_rate: f64,
-  pub components: Vec<Box<dyn Component>>,
+  pub branch_list: Box<dyn Component>,
+  pub stash_list: Box<dyn Component>,
   pub should_quit: bool,
   pub should_suspend: bool,
   pub mode: Mode,
+  pub view: View,
   pub last_tick_key_events: Vec<KeyEvent>,
 }
 
 impl App {
   pub fn new(tick_rate: f64, frame_rate: f64) -> Result<Self> {
     // TODO only have a single repo that is shared
-    let branch_list = GitBranchList::new(Box::new(Git2Repo::from_cwd().unwrap()));
-    let stash_list = StashList::new(Box::new(Git2Repo::from_cwd().unwrap()));
+    let branch_list = Box::new(BranchList::new(Box::new(Git2Repo::from_cwd().unwrap())));
+    let stash_list = Box::new(StashList::new(Box::new(Git2Repo::from_cwd().unwrap())));
     let config = Config::new()?;
-    let mode = Mode::GitBranchManager;
+    let mode = Mode::Default;
     Ok(Self {
       tick_rate,
       frame_rate,
-      components: vec![Box::new(stash_list), Box::new(branch_list)],
+      branch_list,
+      stash_list,
       should_quit: false,
       should_suspend: false,
       config,
       mode,
+      view: View::Stashes,
       last_tick_key_events: Vec::new(),
     })
   }
@@ -49,17 +59,8 @@ impl App {
     // tui.mouse(true);
     tui.enter()?;
 
-    for component in self.components.iter_mut() {
-      component.register_action_handler(action_tx.clone())?;
-    }
-
-    for component in self.components.iter_mut() {
-      component.register_config_handler(self.config.clone())?;
-    }
-
-    for component in self.components.iter_mut() {
-      component.init(tui.size()?)?;
-    }
+    setup_component(&mut self.branch_list, &action_tx, &self.config, &tui)?;
+    setup_component(&mut self.stash_list, &action_tx, &self.config, &tui)?;
 
     loop {
       if let Some(e) = tui.next().await {
@@ -88,10 +89,13 @@ impl App {
           },
           _ => {},
         }
-        for component in self.components.iter_mut() {
-          if let Some(action) = component.handle_events(Some(e.clone()))? {
-            action_tx.send(action)?;
-          }
+
+        let component: &mut Box<dyn Component> = match self.view {
+          View::Branches => &mut self.branch_list,
+          View::Stashes => &mut self.stash_list,
+        };
+        if let Some(action) = component.handle_events(Some(e.clone()))? {
+          action_tx.send(action)?;
         }
       }
 
@@ -99,9 +103,14 @@ impl App {
         if action != Action::Tick && action != Action::Render {
           log::debug!("{action:?}");
         }
+        let component: &mut Box<dyn Component> = match self.view {
+          View::Branches => &mut self.branch_list,
+          View::Stashes => &mut self.stash_list,
+        };
+
         match action {
           Action::StartInputMode => self.mode = Mode::Input,
-          Action::EndInputMod => self.mode = Mode::GitBranchManager,
+          Action::EndInputMod => self.mode = Mode::Default,
           Action::Tick => {
             self.last_tick_key_events.drain(..);
           },
@@ -111,31 +120,25 @@ impl App {
           Action::Resize(w, h) => {
             tui.resize(Rect::new(0, 0, w, h))?;
             tui.draw(|f| {
-              for component in self.components.iter_mut() {
-                let r = component.draw(f, f.size());
-                if let Err(e) = r {
-                  action_tx.send(Action::Error(format!("Failed to draw: {:?}", e))).unwrap();
-                }
+              let r = component.draw(f, f.size());
+              if let Err(e) = r {
+                action_tx.send(Action::Error(format!("Failed to draw: {:?}", e))).unwrap();
               }
             })?;
           },
           Action::Render => {
             tui.draw(|f| {
-              for component in self.components.iter_mut() {
-                let r = component.draw(f, f.size());
-                if let Err(e) = r {
-                  action_tx.send(Action::Error(format!("Failed to draw: {:?}", e))).unwrap();
-                }
+              let r = component.draw(f, f.size());
+              if let Err(e) = r {
+                action_tx.send(Action::Error(format!("Failed to draw: {:?}", e))).unwrap();
               }
             })?;
           },
           _ => {},
         }
-        for component in self.components.iter_mut() {
-          if let Some(action) = component.update(action.clone())? {
-            action_tx.send(action)?
-          };
-        }
+        if let Some(action) = component.update(action.clone())? {
+          action_tx.send(action)?
+        };
       }
       if self.should_suspend {
         tui.suspend()?;
@@ -151,4 +154,16 @@ impl App {
     tui.exit()?;
     Ok(())
   }
+}
+
+fn setup_component(
+  component: &mut Box<dyn Component>,
+  action_tx: &UnboundedSender<Action>,
+  config: &Config,
+  tui: &Tui,
+) -> Result<()> {
+  component.register_action_handler(action_tx.clone())?;
+  component.register_config_handler(config.clone())?;
+  component.init(tui.size()?)?;
+  Ok(())
 }
