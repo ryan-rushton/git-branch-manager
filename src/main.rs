@@ -1,5 +1,4 @@
 use clap::Parser;
-use cli::Cli;
 use color_eyre::eyre::Result;
 
 use crate::{
@@ -9,9 +8,7 @@ use crate::{
 
 pub mod action;
 pub mod app;
-pub mod cli;
 pub mod components;
-pub mod config;
 pub mod error;
 pub mod git;
 pub mod mode;
@@ -23,8 +20,7 @@ async fn tokio_main() -> Result<()> {
 
   initialize_panic_handler()?;
 
-  let args = Cli::parse();
-  let mut app = App::new(args.tick_rate, args.frame_rate)?;
+  let mut app = App::new()?;
   app.run().await?;
 
   Ok(())

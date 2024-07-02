@@ -5,7 +5,6 @@ use tokio::sync::mpsc::UnboundedSender;
 
 use crate::{
   action::Action,
-  config::Config,
   tui::{Event, Frame},
 };
 
@@ -27,19 +26,6 @@ pub trait Component {
   /// * `Result<()>` - An Ok result or an error.
   #[allow(unused_variables)]
   fn register_action_handler(&mut self, tx: UnboundedSender<Action>) -> Result<()> {
-    Ok(())
-  }
-  /// Register a configuration handler that provides configuration settings if necessary.
-  ///
-  /// # Arguments
-  ///
-  /// * `config` - Configuration settings.
-  ///
-  /// # Returns
-  ///
-  /// * `Result<()>` - An Ok result or an error.
-  #[allow(unused_variables)]
-  fn register_config_handler(&mut self, config: Config) -> Result<()> {
     Ok(())
   }
   /// Initialize the component with a specified area if necessary.
