@@ -35,14 +35,7 @@ impl App {
     let branch_list = Box::new(BranchList::new(Box::new(Git2Repo::from_cwd().unwrap())));
     let stash_list = Box::new(StashList::new(Box::new(Git2Repo::from_cwd().unwrap())));
     let mode = Mode::Default;
-    Ok(Self {
-      branch_list,
-      stash_list,
-      should_quit: false,
-      should_suspend: false,
-      mode,
-      view: View::Branches,
-    })
+    Ok(Self { branch_list, stash_list, should_quit: false, should_suspend: false, mode, view: View::Branches })
   }
 
   pub async fn run(&mut self) -> Result<()> {
