@@ -5,7 +5,7 @@ use directories::ProjectDirs;
 use lazy_static::lazy_static;
 use tracing::error;
 use tracing_error::ErrorLayer;
-use tracing_subscriber::{prelude::__tracing_subscriber_SubscriberExt, util::SubscriberInitExt, Layer};
+use tracing_subscriber::{Layer, prelude::__tracing_subscriber_SubscriberExt, util::SubscriberInitExt};
 
 const VERSION_MESSAGE: &str =
   concat!(env!("CARGO_PKG_VERSION"), "-", env!("VERGEN_GIT_DESCRIBE"), " (", env!("VERGEN_BUILD_DATE"), ")");
@@ -21,7 +21,7 @@ lazy_static! {
 }
 
 fn project_directory() -> Option<ProjectDirs> {
-  ProjectDirs::from("com", "kdheepak", env!("CARGO_PKG_NAME"))
+  ProjectDirs::from("com", "rrushton", env!("CARGO_PKG_NAME"))
 }
 
 pub fn initialize_panic_handler() -> Result<()> {
@@ -41,7 +41,7 @@ pub fn initialize_panic_handler() -> Result<()> {
 
     #[cfg(not(debug_assertions))]
     {
-      use human_panic::{handle_dump, print_msg, Metadata};
+      use human_panic::{handle_dump, Metadata, print_msg};
       let meta = Metadata {
         version: env!("CARGO_PKG_VERSION").into(),
         name: env!("CARGO_PKG_NAME").into(),
@@ -79,17 +79,6 @@ pub fn get_data_dir() -> PathBuf {
     proj_dirs.data_local_dir().to_path_buf()
   } else {
     PathBuf::from(".").join(".data")
-  };
-  directory
-}
-
-pub fn get_config_dir() -> PathBuf {
-  let directory = if let Some(s) = CONFIG_FOLDER.clone() {
-    s
-  } else if let Some(proj_dirs) = project_directory() {
-    proj_dirs.config_local_dir().to_path_buf()
-  } else {
-    PathBuf::from(".").join(".config")
   };
   directory
 }
@@ -146,7 +135,6 @@ pub fn version() -> String {
   let author = clap::crate_authors!();
 
   // let current_exe_path = PathBuf::from(clap::crate_name!()).display().to_string();
-  let config_dir_path = get_config_dir().display().to_string();
   let data_dir_path = get_data_dir().display().to_string();
 
   format!(
@@ -155,7 +143,6 @@ pub fn version() -> String {
 
 Authors: {author}
 
-Config directory: {config_dir_path}
 Data directory: {data_dir_path}"
   )
 }
