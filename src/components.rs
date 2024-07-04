@@ -5,11 +5,11 @@ use tokio::sync::mpsc::UnboundedSender;
 
 use crate::{
   action::Action,
-  config::Config,
   tui::{Event, Frame},
 };
 
 pub mod branch_list;
+pub mod stash_list;
 
 /// `Component` is a trait that represents a visual and interactive element of the user interface.
 /// Implementors of this trait can be registered with the main application loop and will be able to receive events,
@@ -26,19 +26,6 @@ pub trait Component {
   /// * `Result<()>` - An Ok result or an error.
   #[allow(unused_variables)]
   fn register_action_handler(&mut self, tx: UnboundedSender<Action>) -> Result<()> {
-    Ok(())
-  }
-  /// Register a configuration handler that provides configuration settings if necessary.
-  ///
-  /// # Arguments
-  ///
-  /// * `config` - Configuration settings.
-  ///
-  /// # Returns
-  ///
-  /// * `Result<()>` - An Ok result or an error.
-  #[allow(unused_variables)]
-  fn register_config_handler(&mut self, config: Config) -> Result<()> {
     Ok(())
   }
   /// Initialize the component with a specified area if necessary.
