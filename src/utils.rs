@@ -5,7 +5,7 @@ use directories::ProjectDirs;
 use lazy_static::lazy_static;
 use tracing::error;
 use tracing_error::ErrorLayer;
-use tracing_subscriber::{Layer, prelude::__tracing_subscriber_SubscriberExt, util::SubscriberInitExt};
+use tracing_subscriber::{prelude::__tracing_subscriber_SubscriberExt, util::SubscriberInitExt, Layer};
 
 const VERSION_MESSAGE: &str =
   concat!(env!("CARGO_PKG_VERSION"), "-", env!("VERGEN_GIT_DESCRIBE"), " (", env!("VERGEN_BUILD_DATE"), ")");
@@ -41,7 +41,7 @@ pub fn initialize_panic_handler() -> Result<()> {
 
     #[cfg(not(debug_assertions))]
     {
-      use human_panic::{handle_dump, Metadata, print_msg};
+      use human_panic::{handle_dump, print_msg, Metadata};
       let meta = Metadata {
         version: env!("CARGO_PKG_VERSION").into(),
         name: env!("CARGO_PKG_NAME").into(),
