@@ -43,7 +43,7 @@ tokio-util = "0.7.11"
 tracing = "0.1.40"
 tracing-error = "0.2.0"
 tracing-subscriber = { version = "0.3.18", features = ["env-filter", "serde"] }
-thiserror = "1.0.61"
+thiserror = "1.0.62"
 tui-textarea = "0.4.0"
 
 [build-dependencies]
