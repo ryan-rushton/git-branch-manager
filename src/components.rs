@@ -28,18 +28,6 @@ pub trait Component {
   fn register_action_handler(&mut self, tx: UnboundedSender<Action>) -> Result<()> {
     Ok(())
   }
-  /// Initialize the component with a specified area if necessary.
-  ///
-  /// # Arguments
-  ///
-  /// * `area` - Rectangular area to initialize the component within.
-  ///
-  /// # Returns
-  ///
-  /// * `Result<()>` - An Ok result or an error.
-  fn init(&mut self, _area: Rect) -> Result<()> {
-    Ok(())
-  }
   /// Handle incoming events and produce actions if necessary.
   ///
   /// # Arguments

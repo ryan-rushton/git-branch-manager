@@ -99,7 +99,7 @@ impl App {
           Action::Resize(w, h) => {
             tui.resize(Rect::new(0, 0, w, h))?;
             tui.draw(|f| {
-              let r = component.draw(f, f.size());
+              let r = component.draw(f, f.area());
               if let Err(e) = r {
                 action_tx.send(Action::Error(format!("Failed to draw: {:?}", e))).unwrap();
               }
@@ -107,7 +107,7 @@ impl App {
           },
           Action::Render => {
             tui.draw(|f| {
-              let r = component.draw(f, f.size());
+              let r = component.draw(f, f.area());
               if let Err(e) = r {
                 action_tx.send(Action::Error(format!("Failed to draw: {:?}", e))).unwrap();
               }
@@ -137,6 +137,5 @@ impl App {
 
 fn setup_component(component: &mut Box<dyn Component>, action_tx: &UnboundedSender<Action>, tui: &Tui) -> Result<()> {
   component.register_action_handler(action_tx.clone())?;
-  component.init(tui.size()?)?;
   Ok(())
 }

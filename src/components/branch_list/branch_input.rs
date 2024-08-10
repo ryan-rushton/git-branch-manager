@@ -91,7 +91,6 @@ impl BranchInput {
   }
 
   pub fn render(&mut self, f: &mut Frame<'_>, area: Rect) {
-    let input = self.text_input.widget();
-    f.render_widget(input, area);
+    f.render_widget(&self.text_input, area);
   }
 }
