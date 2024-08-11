@@ -1,7 +1,7 @@
 use color_eyre::eyre::Result;
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use ratatui::prelude::Rect;
-use tokio::sync::{mpsc, mpsc::UnboundedSender};
+use tokio::sync::mpsc;
 
 use crate::{
   action::Action,
@@ -45,8 +45,8 @@ impl App {
     // tui.mouse(true);
     tui.enter()?;
 
-    setup_component(&mut self.branch_list, &action_tx, &tui)?;
-    setup_component(&mut self.stash_list, &action_tx, &tui)?;
+    self.branch_list.register_action_handler(action_tx.clone())?;
+    self.stash_list.register_action_handler(action_tx.clone())?;
 
     loop {
       if let Some(e) = tui.next().await {
@@ -122,8 +122,7 @@ impl App {
       if self.should_suspend {
         tui.suspend()?;
         action_tx.send(Action::Resume)?;
-        tui = tui::Tui::new()?.tick_rate(TICK_RATE).frame_rate(FRAME_RATE);
-        // tui.mouse(true);
+        tui = Tui::new()?.tick_rate(TICK_RATE).frame_rate(FRAME_RATE);
         tui.enter()?;
       } else if self.should_quit {
         tui.stop()?;
@@ -133,9 +132,4 @@ impl App {
     tui.exit()?;
     Ok(())
   }
-}
-
-fn setup_component(component: &mut Box<dyn Component>, action_tx: &UnboundedSender<Action>, tui: &Tui) -> Result<()> {
-  component.register_action_handler(action_tx.clone())?;
-  Ok(())
 }
