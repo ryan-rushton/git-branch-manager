@@ -13,6 +13,7 @@ use crate::{
     branch_list::{branch_input::BranchInput, branch_item::BranchItem, instruction_footer::InstructionFooter},
     Component,
   },
+  error::Error,
   git::git_repo::{GitBranch, GitRepo},
   tui::Frame,
 };
@@ -89,7 +90,7 @@ impl BranchList {
     self.branches.get(self.selected_index)
   }
 
-  fn checkout_selected(&mut self) -> Result<(), git2::Error> {
+  fn checkout_selected(&mut self) -> Result<(), Error> {
     let maybe_selected = self.get_selected_branch();
     if maybe_selected.is_none() {
       return Ok(());
@@ -114,7 +115,7 @@ impl BranchList {
     selected.stage_for_deletion(stage);
   }
 
-  pub fn deleted_selected(&mut self) -> Result<(), git2::Error> {
+  pub fn deleted_selected(&mut self) -> Result<(), Error> {
     let selected = self.branches.get(self.selected_index);
     if selected.is_none() {
       return Ok(());
@@ -130,7 +131,7 @@ impl BranchList {
     Ok(())
   }
 
-  pub fn delete_staged_branches(&mut self) -> Result<(), git2::Error> {
+  pub fn delete_staged_branches(&mut self) -> Result<(), Error> {
     let mut indexes_to_delete: Vec<usize> = Vec::new();
 
     for branch_index in 0..self.branches.len() {
@@ -160,7 +161,7 @@ impl BranchList {
     Ok(())
   }
 
-  fn create_branch(&mut self, name: String) -> Result<(), git2::Error> {
+  fn create_branch(&mut self, name: String) -> Result<(), Error> {
     let branch = GitBranch { name: name.clone(), is_head: false, upstream: None };
     self.repo.create_branch(&branch)?;
     self.branches.push(BranchItem::new(branch, true));
@@ -173,11 +174,11 @@ impl BranchList {
     Ok(())
   }
 
-  fn maybe_handle_git_error(&mut self, err: Option<git2::Error>) {
+  fn maybe_handle_git_error(&mut self, err: Option<Error>) {
     if err.is_some() {
       let error = err.unwrap();
       error!("Git operation failed: {}", error);
-      self.error = Some(error.message().to_string());
+      self.error = Some(error.to_string());
     }
   }
 
