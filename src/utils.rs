@@ -83,6 +83,17 @@ pub fn get_data_dir() -> PathBuf {
   directory
 }
 
+pub fn get_config_dir() -> PathBuf {
+  let directory = if let Some(s) = CONFIG_FOLDER.clone() {
+    s
+  } else if let Some(proj_dirs) = project_directory() {
+    proj_dirs.config_local_dir().to_path_buf()
+  } else {
+    PathBuf::from(".").join(".config")
+  };
+  directory
+}
+
 pub fn initialize_logging() -> Result<()> {
   let directory = get_data_dir();
   std::fs::create_dir_all(directory.clone())?;
@@ -135,14 +146,17 @@ pub fn version() -> String {
   let author = clap::crate_authors!();
 
   // let current_exe_path = PathBuf::from(clap::crate_name!()).display().to_string();
+  let config_dir_path = get_config_dir().display().to_string();
   let data_dir_path = get_data_dir().display().to_string();
+  let log_level = std::env::var(LOG_ENV.clone()).unwrap_or_else(|_| format!("{}=info", env!("CARGO_CRATE_NAME")));
 
   format!(
     "\
 {VERSION_MESSAGE}
 
 Authors: {author}
-
-Data directory: {data_dir_path}"
+Config directory: {config_dir_path}
+Data directory: {data_dir_path}
+Log leve: {log_level}"
   )
 }
