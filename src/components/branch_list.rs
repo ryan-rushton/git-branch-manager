@@ -195,7 +195,7 @@ impl BranchList {
         is_valid_name: self.branch_input.input_state.is_valid.unwrap_or(false),
       });
       branches.sort_by(|a, b| a.branch.name.cmp(&b.branch.name));
-      self.list_state.select(branches.iter().position(|bi| bi.branch.name == content.clone()))
+      self.list_state.select(branches.iter().position(|bi| bi.staged_for_creation))
     } else {
       self.list_state.select(Some(self.selected_index));
     }
@@ -281,7 +281,13 @@ impl Component for BranchList {
         self.mode = Mode::Selection;
         Ok(None)
       },
-      Action::UpdateNewBranchName(key_event) => Ok(self.branch_input.handle_key_event(key_event, &*self.repo)),
+      Action::UpdateNewBranchName(key_event) => {
+        Ok(self.branch_input.handle_key_event(
+          key_event,
+          &*self.repo,
+          self.branches.iter().map(|branch_item| &branch_item.branch).collect(),
+        ))
+      },
       Action::CheckoutSelectedBranch => {
         let result = self.checkout_selected();
         self.maybe_handle_git_error(result.err());

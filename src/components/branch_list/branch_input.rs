@@ -7,7 +7,11 @@ use ratatui::{
 };
 use tui_textarea::{CursorMove, Input, TextArea};
 
-use crate::{action::Action, git::git_repo::GitRepo, tui::Frame};
+use crate::{
+  action::Action,
+  git::git_repo::{GitBranch, GitRepo},
+  tui::Frame,
+};
 
 #[derive(Debug, Default, Clone)]
 pub struct InputState {
@@ -38,13 +42,14 @@ impl BranchInput {
     Some(input)
   }
 
-  fn validate_branch_name(&mut self, repo: &dyn GitRepo) {
+  fn validate_branch_name(&mut self, repo: &dyn GitRepo, current_branches: Vec<&GitBranch>) {
     if self.text_input.lines().first().is_none() {
       return;
     }
     let proposed_name = self.text_input.lines().first().unwrap();
     let is_valid = repo.validate_branch_name(proposed_name);
-    if is_valid.is_err() || !is_valid.unwrap() {
+    let is_unique_name = !current_branches.iter().any(|b| b.name.eq(proposed_name));
+    if is_valid.is_err() || !is_valid.unwrap() || !is_unique_name {
       self.text_input.set_style(Style::default().fg(Color::LightRed));
       self.input_state.is_valid = Some(false);
       return;
@@ -53,7 +58,12 @@ impl BranchInput {
     self.input_state.is_valid = Some(true);
   }
 
-  pub fn handle_key_event(&mut self, key_event: KeyEvent, repo: &dyn GitRepo) -> Option<Action> {
+  pub fn handle_key_event(
+    &mut self,
+    key_event: KeyEvent,
+    repo: &dyn GitRepo,
+    current_branches: Vec<&GitBranch>,
+  ) -> Option<Action> {
     match key_event {
       KeyEvent { code: KeyCode::Esc, modifiers: KeyModifiers::NONE, kind: _, state: _ } => {
         self.input_state.value = None;
@@ -63,7 +73,7 @@ impl BranchInput {
         Some(Action::EndInputMod)
       },
       KeyEvent { code: KeyCode::Enter, modifiers: _, kind: _, state: _ } => {
-        if self.input_state.is_valid.is_some() && !self.input_state.is_valid.unwrap() {
+        if self.input_state.is_valid.is_some() && !self.input_state.is_valid? {
           // TODO report error
           return None;
         }
@@ -79,7 +89,7 @@ impl BranchInput {
       },
       _ => {
         if self.text_input.input(Input::from(key_event)) {
-          self.validate_branch_name(repo);
+          self.validate_branch_name(repo, current_branches);
           let new_branch_name = self.get_text();
           if new_branch_name.is_some() {
             self.input_state.value = new_branch_name;

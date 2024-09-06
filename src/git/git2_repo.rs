@@ -77,9 +77,7 @@ impl GitRepo for Git2Repo {
   }
 
   fn validate_branch_name(&self, name: &str) -> Result<bool, Error> {
-    let local_branches = self.local_branches()?;
-    let is_unique_name = !local_branches.iter().any(|b| b.name.eq(name));
-    Ok(is_unique_name && Branch::name_is_valid(name)?)
+    Ok(Branch::name_is_valid(name)?)
   }
 
   fn create_branch(&self, to_create: &GitBranch) -> Result<(), Error> {
@@ -96,7 +94,6 @@ impl GitRepo for Git2Repo {
     info!("Using commit for new branch {}", commit.id());
     self.repo.branch(&to_create.name, &commit, false)?;
     info!("Successfully created branch {}", to_create.name);
-    
     Ok(())
   }
 
@@ -106,13 +103,13 @@ impl GitRepo for Git2Repo {
       if res.is_err() {
         continue;
       }
-      let (mut branch, _branch_type) = res.unwrap();
+      let (mut branch, _branch_type) = res?;
       if branch.name().is_err() {
         continue;
       }
-      let name = branch.name().unwrap();
+      let name = branch.name()?;
       if name.is_some() && to_delete.name == name.unwrap() {
-        branch.delete().unwrap();
+        branch.delete()?;
         break;
       }
     }
