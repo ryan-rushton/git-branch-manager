@@ -6,7 +6,7 @@ use tokio::sync::mpsc;
 use crate::{
   action::Action,
   components::{branch_list::BranchList, stash_list::StashList, Component},
-  git::git2_repo::Git2Repo,
+  git::{git2_repo::Git2Repo, git_cli_repo::GitCliRepo},
   mode::Mode,
   tui,
   tui::Tui,
@@ -32,7 +32,7 @@ pub struct App {
 impl App {
   pub fn new() -> Result<Self> {
     // TODO only have a single repo that is shared
-    let branch_list = Box::new(BranchList::new(Box::new(Git2Repo::from_cwd().unwrap())));
+    let branch_list = Box::new(BranchList::new(Box::new(GitCliRepo::from_cwd().unwrap())));
     let stash_list = Box::new(StashList::new(Box::new(Git2Repo::from_cwd().unwrap())));
     let mode = Mode::Default;
     Ok(Self { branch_list, stash_list, should_quit: false, should_suspend: false, mode, view: View::Branches })

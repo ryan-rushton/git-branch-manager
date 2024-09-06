@@ -1,4 +1,4 @@
-use git2::Error;
+use crate::error::Error;
 
 #[derive(Debug, Default, Clone, PartialEq, Eq)]
 pub struct GitRemoteBranch {
