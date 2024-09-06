@@ -1,8 +1,10 @@
 use std::process::Command;
 
+use regex::Regex;
+
 use crate::{
   error::Error,
-  git::git_repo::{GitBranch, GitRepo, GitStash},
+  git::git_repo::{GitBranch, GitRemoteBranch, GitRepo, GitStash},
 };
 
 pub struct GitCliRepo {}
@@ -16,16 +18,30 @@ impl GitCliRepo {
 
 impl GitRepo for GitCliRepo {
   fn local_branches(&self) -> Result<Vec<GitBranch>, Error> {
-    let res = run_git_command(&["branch", "--list"])?;
+    let res = run_git_command(&["branch", "--list", "-vv"])?;
 
     let branches: Vec<GitBranch> = res
       .lines()
       .map(|line| {
-        let mut trimmed = line.trim();
-        if trimmed.starts_with("*") {
-          trimmed = &trimmed[1..trimmed.len()]
+        let trimmed = line.trim();
+        // A regex to capture the following git list outputs
+        // * git-cli-repo 911ec26 [origin/git-cli-repo] Linting
+        //   main         8fb5d9b [origin/main] Fix build
+        //   stash-list   6442450 [origin/stash-list: gone] Formatting
+        //   test         dbcf785 Updates
+        let re = Regex::new(
+          r"((?<head>\*)\s+)?(?<name>\S+)\s+(?<sha>[A-Fa-f0-9]+)\s+(\[(?<upstream>[^:|^\]]+)(?<gone>[:\sgone]+)?)?",
+        )
+        .unwrap();
+        let Some(captures) = re.captures(trimmed) else { return GitBranch::new(String::from(trimmed)) };
+        let is_head = captures.name("head").is_some();
+        let name = String::from(captures.name("name").unwrap().as_str());
+        let upstream = captures.name("upstream");
+        GitBranch {
+          name,
+          is_head,
+          upstream: upstream.map(|upstream_name| GitRemoteBranch::new(String::from(upstream_name.as_str()))),
         }
-        GitBranch::new(trimmed.trim().to_string())
       })
       .collect();
 

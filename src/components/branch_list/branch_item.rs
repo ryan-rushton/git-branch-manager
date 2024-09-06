@@ -35,7 +35,7 @@ impl BranchItem {
     }
     if self.branch.upstream.is_some() {
       let upstream = self.branch.upstream.clone();
-      parts.push(Span::styled(format!(" {}", upstream.unwrap().name), Style::default().add_modifier(Modifier::DIM)));
+      parts.push(Span::styled(format!(" [{}]", upstream.unwrap().name), Style::default().add_modifier(Modifier::DIM)));
     }
     text = text.spans(parts);
     ListItem::from(text)

@@ -45,6 +45,7 @@ tracing-error = "0.2.0"
 tracing-subscriber = { version = "0.3.18", features = ["env-filter", "serde"] }
 thiserror = "1.0.63"
 tui-textarea = "0.6.1"
+regex = "1.10.6"
 
 [build-dependencies]
 vergen = { version = "=8.3.2", features = ["build", "git", "gitcl", "cargo"] }
