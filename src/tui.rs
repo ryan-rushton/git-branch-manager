@@ -20,6 +20,7 @@ use tokio::{
   task::JoinHandle,
 };
 use tokio_util::sync::CancellationToken;
+use tracing::debug;
 
 pub type IO = std::io::Stdout;
 pub fn io() -> IO {
@@ -111,6 +112,7 @@ impl Tui {
           maybe_event = crossterm_event => {
             match maybe_event {
               Some(Ok(evt)) => {
+                debug!("Received event {:#?}", evt);
                 match evt {
                   CrosstermEvent::Key(key) => {
                     if key.kind == KeyEventKind::Press {

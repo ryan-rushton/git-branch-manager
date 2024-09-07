@@ -1,6 +1,7 @@
 use std::process::Command;
 
 use regex::Regex;
+use tracing::{error, info};
 
 use crate::{
   error::Error,
@@ -33,7 +34,10 @@ impl GitRepo for GitCliRepo {
           r"((?<head>\*)\s+)?(?<name>\S+)\s+(?<sha>[A-Fa-f0-9]+)\s+(\[(?<upstream>[^:|^\]]+)(?<gone>[:\sgone]+)?)?",
         )
         .unwrap();
-        let Some(captures) = re.captures(trimmed) else { return GitBranch::new(String::from(trimmed)) };
+        let Some(captures) = re.captures(trimmed) else {
+          error!("Failed to capture git branch information for: {}", trimmed);
+          return GitBranch::new(String::from(trimmed));
+        };
         let is_head = captures.name("head").is_some();
         let name = String::from(captures.name("name").unwrap().as_str());
         let upstream = captures.name("upstream");
@@ -86,18 +90,22 @@ impl GitRepo for GitCliRepo {
 }
 
 fn run_git_command(args: &[&str]) -> Result<String, Error> {
+  let args_log_command = args.join(" ");
+  info!("Running `git {}`", args_log_command);
   let res = Command::new("git").args(args).output();
   if res.is_err() {
-    let message = format!("Failed to run git {:?}, error: {}", args, res.err().unwrap());
-    return Err(Error::Git(message));
+    let err = res.err().unwrap();
+    error!("Failed to run `git {}`, error: {}", args_log_command, err);
+    return Err(Error::Git(format!("{}", err)));
   }
 
   let output = res.unwrap();
   let err = String::from_utf8(output.stderr)?;
   if !output.status.success() && !err.is_empty() {
-    let message = format!("Failed to run git {:?}, error: {}", args, err);
-    return Err(Error::Git(message));
+    error!("Failed to run `git {}`, error: {}", args_log_command, err);
+    return Err(Error::Git(err));
   }
   let content = String::from_utf8(output.stdout)?;
+  info!("Received git cli reply:\n{}", content);
   Ok(content)
 }

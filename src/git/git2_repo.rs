@@ -1,7 +1,7 @@
 use std::env::current_dir;
 
 use git2::{Branch, BranchType, Repository};
-use log::{error, info};
+use tracing::{error, info};
 
 use super::git_repo::GitStash;
 use crate::{

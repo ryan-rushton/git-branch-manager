@@ -6,6 +6,7 @@ use tokio::sync::mpsc;
 use crate::{
   action::Action,
   components::{branch_list::BranchList, stash_list::StashList, Component},
+  config::Config,
   git::{git2_repo::Git2Repo, git_cli_repo::GitCliRepo},
   mode::Mode,
   tui,
@@ -21,6 +22,7 @@ const TICK_RATE: f64 = 10.0;
 const FRAME_RATE: f64 = 30.0;
 
 pub struct App {
+  pub config: Config,
   pub branch_list: Box<dyn Component>,
   pub stash_list: Box<dyn Component>,
   pub should_quit: bool,
@@ -31,11 +33,12 @@ pub struct App {
 
 impl App {
   pub fn new() -> Result<Self> {
+    let config = Config::new()?;
     // TODO only have a single repo that is shared
     let branch_list = Box::new(BranchList::new(Box::new(GitCliRepo::from_cwd().unwrap())));
     let stash_list = Box::new(StashList::new(Box::new(Git2Repo::from_cwd().unwrap())));
     let mode = Mode::Default;
-    Ok(Self { branch_list, stash_list, should_quit: false, should_suspend: false, mode, view: View::Branches })
+    Ok(Self { config, branch_list, stash_list, should_quit: false, should_suspend: false, mode, view: View::Branches })
   }
 
   pub async fn run(&mut self) -> Result<()> {
@@ -58,7 +61,7 @@ impl App {
           tui::Event::Key(key) => {
             if self.mode == Mode::Default {
               let action = match key {
-                KeyEvent { code: KeyCode::Char('q'), modifiers: _, state: _, kind: _ } => Some(Action::Quit),
+                KeyEvent { code: KeyCode::Esc, modifiers: _, state: _, kind: _ } => Some(Action::Quit),
                 KeyEvent { code: KeyCode::Char('c' | 'C'), modifiers: KeyModifiers::CONTROL, state: _, kind: _ } => {
                   Some(Action::Quit)
                 },
