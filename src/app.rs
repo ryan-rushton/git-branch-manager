@@ -61,7 +61,7 @@ impl App {
           tui::Event::Key(key) => {
             if self.mode == Mode::Default {
               let action = match key {
-                KeyEvent { code: KeyCode::Char('q'), modifiers: _, state: _, kind: _ } => Some(Action::Quit),
+                KeyEvent { code: KeyCode::Esc, modifiers: _, state: _, kind: _ } => Some(Action::Quit),
                 KeyEvent { code: KeyCode::Char('c' | 'C'), modifiers: KeyModifiers::CONTROL, state: _, kind: _ } => {
                   Some(Action::Quit)
                 },

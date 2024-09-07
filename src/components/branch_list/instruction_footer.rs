@@ -10,7 +10,7 @@ pub struct InstructionFooter {}
 
 impl InstructionFooter {
   pub fn render(&self, f: &mut Frame<'_>, area: Rect, branches: &[BranchItem], selected: Option<&BranchItem>) {
-    let mut commands = vec![Span::raw("q: Quit")];
+    let mut commands = vec![Span::raw("esc: Quit")];
     commands.push(Span::raw(" | ⇧ + c: Checkout new"));
     if selected.is_some() && selected.unwrap().staged_for_deletion {
       commands.push(Span::raw(" | d: Delete"));

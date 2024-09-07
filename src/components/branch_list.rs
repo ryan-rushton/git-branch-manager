@@ -1,11 +1,11 @@
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
-use tracing::error;
 use ratatui::{
   layout::{Constraint, Direction, Layout, Rect},
   style::{Color, Modifier, Style},
   text::Text,
-  widgets::{Block, Borders, List, ListItem, ListState, Paragraph},
+  widgets::{Block, Borders, List, ListItem, ListState, Paragraph, Wrap},
 };
+use tracing::error;
 
 use crate::{
   action::Action,
@@ -177,7 +177,7 @@ impl BranchList {
   fn maybe_handle_git_error(&mut self, err: Option<Error>) {
     if err.is_some() {
       let error = err.unwrap();
-      error!("Git operation failed: {}", error);
+      error!("{}", error);
       self.error = Some(error.to_string());
     }
   }
@@ -217,7 +217,10 @@ impl BranchList {
     }
     let error_message = self.error.as_ref().unwrap().clone();
     let text = Text::from(error_message);
-    let component = Paragraph::new(text).block(Block::default()).style(Style::from(Color::Red));
+    let component = Paragraph::new(text)
+      .block(Block::bordered().title("Error"))
+      .style(Style::from(Color::Red))
+      .wrap(Wrap { trim: true });
     f.render_widget(component, area);
   }
 }
@@ -334,10 +337,14 @@ impl Component for BranchList {
     }
 
     if self.error.is_some() {
-      let layout =
-        Layout::new(Direction::Vertical, [Constraint::Fill(1), Constraint::Length(2), Constraint::Length(1)])
-          .margin(1)
-          .split(area);
+      let err_size = self.error.clone().unwrap().lines().count() + 2;
+      let layout = Layout::new(Direction::Vertical, [
+        Constraint::Fill(1),
+        Constraint::Length(u16::try_from(err_size)?),
+        Constraint::Length(1),
+      ])
+      .margin(1)
+      .split(area);
       self.render_list(f, layout[0]);
       self.render_error(f, layout[1]);
       self.instruction_footer.render(f, layout[2], &self.branches, self.get_selected_branch());

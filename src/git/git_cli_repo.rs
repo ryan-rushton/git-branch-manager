@@ -90,21 +90,20 @@ impl GitRepo for GitCliRepo {
 }
 
 fn run_git_command(args: &[&str]) -> Result<String, Error> {
-  info!("Running git {:?}", args);
+  let args_log_command = args.join(" ");
+  info!("Running `git {}`", args_log_command);
   let res = Command::new("git").args(args).output();
   if res.is_err() {
     let err = res.err().unwrap();
-    let message = format!("Failed to run git {:?}, error: {}", args, err);
-    error!(message);
-    return Err(Error::Git(message));
+    error!("Failed to run `git {}`, error: {}", args_log_command, err);
+    return Err(Error::Git(format!("{}", err)));
   }
 
   let output = res.unwrap();
   let err = String::from_utf8(output.stderr)?;
   if !output.status.success() && !err.is_empty() {
-    let message = format!("Failed to run git {:?}, error: {}", args, err);
-    error!(message);
-    return Err(Error::Git(message));
+    error!("Failed to run `git {}`, error: {}", args_log_command, err);
+    return Err(Error::Git(err));
   }
   let content = String::from_utf8(output.stdout)?;
   info!("Received git cli reply:\n{}", content);
