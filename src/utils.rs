@@ -5,7 +5,7 @@ use directories::ProjectDirs;
 use lazy_static::lazy_static;
 use tracing::error;
 use tracing_error::ErrorLayer;
-use tracing_subscriber::{prelude::__tracing_subscriber_SubscriberExt, util::SubscriberInitExt, Layer};
+use tracing_subscriber::{Layer, prelude::__tracing_subscriber_SubscriberExt, util::SubscriberInitExt};
 
 const VERSION_MESSAGE: &str =
   concat!(env!("CARGO_PKG_VERSION"), "-", env!("VERGEN_GIT_DESCRIBE"), " (", env!("VERGEN_BUILD_DATE"), ")");
@@ -41,7 +41,7 @@ pub fn initialize_panic_handler() -> Result<()> {
 
     #[cfg(not(debug_assertions))]
     {
-      use human_panic::{handle_dump, print_msg, Metadata};
+      use human_panic::{Metadata, handle_dump, print_msg};
       let meta = Metadata {
         version: env!("CARGO_PKG_VERSION").into(),
         name: env!("CARGO_PKG_NAME").into(),
@@ -99,19 +99,17 @@ pub fn initialize_logging() -> Result<()> {
   std::fs::create_dir_all(directory.clone())?;
   let log_path = directory.join(LOG_FILE.clone());
   let log_file = std::fs::File::create(log_path)?;
-  std::env::set_var(
-    "RUST_LOG",
-    std::env::var("RUST_LOG")
-      .or_else(|_| std::env::var(LOG_ENV.clone()))
-      .unwrap_or_else(|_| format!("{}=info", env!("CARGO_CRATE_NAME"))),
-  );
+  let log_level = std::env::var("RUST_LOG")
+    .or_else(|_| std::env::var(LOG_ENV.clone()))
+    .unwrap_or_else(|_| format!("{}=info", env!("CARGO_CRATE_NAME")));
+
   let file_subscriber = tracing_subscriber::fmt::layer()
     .with_file(true)
     .with_line_number(true)
     .with_writer(log_file)
     .with_target(false)
     .with_ansi(false)
-    .with_filter(tracing_subscriber::filter::EnvFilter::from_default_env());
+    .with_filter(tracing_subscriber::filter::EnvFilter::new(log_level));
   tracing_subscriber::registry().with(file_subscriber).with(ErrorLayer::default()).init();
   Ok(())
 }
