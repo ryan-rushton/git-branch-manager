@@ -45,7 +45,6 @@ impl App {
     let (action_tx, mut action_rx) = mpsc::unbounded_channel();
 
     let mut tui = tui::Tui::new()?.tick_rate(TICK_RATE).frame_rate(FRAME_RATE);
-    // tui.mouse(true);
     tui.enter()?;
 
     self.branch_list.register_action_handler(action_tx.clone())?;

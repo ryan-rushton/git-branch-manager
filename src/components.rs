@@ -1,5 +1,5 @@
 use color_eyre::eyre::Result;
-use crossterm::event::{KeyEvent, MouseEvent};
+use crossterm::event::KeyEvent;
 use ratatui::layout::Rect;
 use tokio::sync::mpsc::UnboundedSender;
 
@@ -36,12 +36,10 @@ pub trait Component: Send + Sync {
   ///
   /// * `Result<Option<Action>>` - An action to be processed or none.
   async fn handle_events(&mut self, event: Option<Event>) -> Result<Option<Action>> {
-    let r = match event {
-      Some(Event::Key(key_event)) => self.handle_key_events(key_event).await?,
-      Some(Event::Mouse(mouse_event)) => self.handle_mouse_events(mouse_event).await?,
-      _ => None,
-    };
-    Ok(r)
+    match event {
+      Some(Event::Key(key_event)) => self.handle_key_events(key_event).await,
+      _ => Ok(None),
+    }
   }
 
   /// Handle key events and produce actions if necessary.
@@ -54,19 +52,6 @@ pub trait Component: Send + Sync {
   ///
   /// * `Result<Option<Action>>` - An action to be processed or none.
   async fn handle_key_events(&mut self, _key: KeyEvent) -> Result<Option<Action>> {
-    Ok(None)
-  }
-
-  /// Handle mouse events and produce actions if necessary.
-  ///
-  /// # Arguments
-  ///
-  /// * `mouse` - A mouse event to be processed.
-  ///
-  /// # Returns
-  ///
-  /// * `Result<Option<Action>>` - An action to be processed or none.
-  async fn handle_mouse_events(&mut self, _mouse: MouseEvent) -> Result<Option<Action>> {
     Ok(None)
   }
 
