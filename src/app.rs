@@ -7,7 +7,7 @@ use crate::{
   action::Action,
   components::{Component, branch_list::BranchList, stash_list::StashList},
   config::Config,
-  git::{git_cli_repo::GitCliRepo, git2_repo::Git2Repo},
+  git::git_cli_repo::GitCliRepo,
   mode::Mode,
   tui,
   tui::Tui,
@@ -34,9 +34,9 @@ pub struct App {
 impl App {
   pub fn new() -> Result<Self> {
     let config = Config::new()?;
-    // TODO only have a single repo that is shared
-    let branch_list = Box::new(BranchList::new(Box::new(GitCliRepo::from_cwd().unwrap())));
-    let stash_list = Box::new(StashList::new(Box::new(Git2Repo::from_cwd().unwrap())));
+    let git_repo = GitCliRepo::from_cwd().unwrap();
+    let branch_list = Box::new(BranchList::new(Box::new(git_repo.clone())));
+    let stash_list = Box::new(StashList::new(Box::new(git_repo)));
     let mode = Mode::Default;
     Ok(Self { config, branch_list, stash_list, should_quit: false, should_suspend: false, mode, view: View::Branches })
   }

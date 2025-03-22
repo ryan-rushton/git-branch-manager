@@ -40,7 +40,7 @@ impl GitStash {
 #[async_trait::async_trait]
 pub trait GitRepo: Send + Sync {
   async fn local_branches(&self) -> Result<Vec<GitBranch>, Error>;
-  async fn stashes(&mut self) -> Result<Vec<GitStash>, Error>;
+  async fn stashes(&self) -> Result<Vec<GitStash>, Error>;
   async fn checkout_branch_from_name(&self, branch_name: &str) -> Result<(), Error>;
   async fn checkout_branch(&self, branch: &GitBranch) -> Result<(), Error>;
   async fn validate_branch_name(&self, name: &str) -> Result<bool, Error>;
