@@ -6,10 +6,7 @@ use std::{
 use color_eyre::eyre::Result;
 use crossterm::{
   cursor,
-  event::{
-    DisableBracketedPaste, DisableMouseCapture, EnableBracketedPaste, EnableMouseCapture, Event as CrosstermEvent,
-    KeyEvent, KeyEventKind, MouseEvent,
-  },
+  event::{DisableBracketedPaste, EnableBracketedPaste, Event as CrosstermEvent, KeyEvent, KeyEventKind},
   terminal::{EnterAlternateScreen, LeaveAlternateScreen},
 };
 use futures::{FutureExt, StreamExt};
@@ -40,7 +37,6 @@ pub enum Event {
   FocusLost,
   Paste(String),
   Key(KeyEvent),
-  Mouse(MouseEvent),
   Resize(u16, u16),
 }
 
@@ -52,7 +48,6 @@ pub struct Tui {
   pub event_tx: UnboundedSender<Event>,
   pub frame_rate: f64,
   pub tick_rate: f64,
-  pub mouse: bool,
   pub paste: bool,
 }
 
@@ -64,9 +59,8 @@ impl Tui {
     let (event_tx, event_rx) = mpsc::unbounded_channel();
     let cancellation_token = CancellationToken::new();
     let task = tokio::spawn(async {});
-    let mouse = false;
     let paste = false;
-    Ok(Self { terminal, task, cancellation_token, event_rx, event_tx, frame_rate, tick_rate, mouse, paste })
+    Ok(Self { terminal, task, cancellation_token, event_rx, event_tx, frame_rate, tick_rate, paste })
   }
 
   pub fn tick_rate(mut self, tick_rate: f64) -> Self {
@@ -76,11 +70,6 @@ impl Tui {
 
   pub fn frame_rate(mut self, frame_rate: f64) -> Self {
     self.frame_rate = frame_rate;
-    self
-  }
-
-  pub fn mouse(mut self, mouse: bool) -> Self {
-    self.mouse = mouse;
     self
   }
 
@@ -119,9 +108,6 @@ impl Tui {
                       _event_tx.send(Event::Key(key)).unwrap();
                     }
                   },
-                  CrosstermEvent::Mouse(mouse) => {
-                    _event_tx.send(Event::Mouse(mouse)).unwrap();
-                  },
                   CrosstermEvent::Resize(x, y) => {
                     _event_tx.send(Event::Resize(x, y)).unwrap();
                   },
@@ -134,6 +120,7 @@ impl Tui {
                   CrosstermEvent::Paste(s) => {
                     _event_tx.send(Event::Paste(s)).unwrap();
                   },
+                  _ => {},
                 }
               }
               Some(Err(_)) => {
@@ -173,9 +160,6 @@ impl Tui {
   pub fn enter(&mut self) -> Result<()> {
     crossterm::terminal::enable_raw_mode()?;
     crossterm::execute!(io(), EnterAlternateScreen, cursor::Hide)?;
-    if self.mouse {
-      crossterm::execute!(io(), EnableMouseCapture)?;
-    }
     if self.paste {
       crossterm::execute!(io(), EnableBracketedPaste)?;
     }
@@ -189,9 +173,6 @@ impl Tui {
       self.flush()?;
       if self.paste {
         crossterm::execute!(io(), DisableBracketedPaste)?;
-      }
-      if self.mouse {
-        crossterm::execute!(io(), DisableMouseCapture)?;
       }
       crossterm::execute!(io(), LeaveAlternateScreen, cursor::Show)?;
       crossterm::terminal::disable_raw_mode()?;

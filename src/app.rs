@@ -5,9 +5,9 @@ use tokio::sync::mpsc;
 
 use crate::{
   action::Action,
-  components::{branch_list::BranchList, stash_list::StashList, Component},
+  components::{Component, branch_list::BranchList, stash_list::StashList},
   config::Config,
-  git::{git2_repo::Git2Repo, git_cli_repo::GitCliRepo},
+  git::git_cli_repo::GitCliRepo,
   mode::Mode,
   tui,
   tui::Tui,
@@ -34,9 +34,9 @@ pub struct App {
 impl App {
   pub fn new() -> Result<Self> {
     let config = Config::new()?;
-    // TODO only have a single repo that is shared
-    let branch_list = Box::new(BranchList::new(Box::new(GitCliRepo::from_cwd().unwrap())));
-    let stash_list = Box::new(StashList::new(Box::new(Git2Repo::from_cwd().unwrap())));
+    let git_repo = GitCliRepo::from_cwd().map_err(|e| color_eyre::eyre::eyre!(e.to_string()))?;
+    let branch_list = Box::new(BranchList::new(Box::new(git_repo.clone())));
+    let stash_list = Box::new(StashList::new(Box::new(git_repo)));
     let mode = Mode::Default;
     Ok(Self { config, branch_list, stash_list, should_quit: false, should_suspend: false, mode, view: View::Branches })
   }
@@ -45,11 +45,13 @@ impl App {
     let (action_tx, mut action_rx) = mpsc::unbounded_channel();
 
     let mut tui = tui::Tui::new()?.tick_rate(TICK_RATE).frame_rate(FRAME_RATE);
-    // tui.mouse(true);
     tui.enter()?;
 
     self.branch_list.register_action_handler(action_tx.clone())?;
     self.stash_list.register_action_handler(action_tx.clone())?;
+
+    // Initial refresh to load data
+    action_tx.send(Action::Refresh)?;
 
     loop {
       if let Some(e) = tui.next().await {
@@ -79,7 +81,7 @@ impl App {
           View::Branches => &mut self.branch_list,
           View::Stashes => &mut self.stash_list,
         };
-        if let Some(action) = component.handle_events(Some(e.clone()))? {
+        if let Some(action) = component.handle_events(Some(e.clone())).await? {
           action_tx.send(action)?;
         }
       }
@@ -116,9 +118,20 @@ impl App {
               }
             })?;
           },
+          Action::Refresh => {
+            if let Some(next_action) = component.update(action.clone()).await? {
+              action_tx.send(next_action)?;
+            }
+            tui.draw(|f| {
+              let r = component.draw(f, f.area());
+              if let Err(e) = r {
+                action_tx.send(Action::Error(format!("Failed to draw: {:?}", e))).unwrap();
+              }
+            })?;
+          },
           _ => {},
         }
-        if let Some(action) = component.update(action.clone())? {
+        if let Some(action) = component.update(action.clone()).await? {
           action_tx.send(action)?
         };
       }

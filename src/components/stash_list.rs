@@ -1,17 +1,20 @@
+use crossterm::event::KeyEvent;
 use ratatui::{
+  Frame,
   layout::Rect,
   style::{Color, Modifier, Style},
   text::{Line, Span},
   widgets::{Block, Borders, List, ListItem, ListState},
-  Frame,
 };
+use tokio::sync::mpsc::UnboundedSender;
 
 use crate::{
+  action::Action,
   components::Component,
   git::git_repo::{GitRepo, GitStash},
 };
 
-#[derive(Debug, Default, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone)]
 struct StashItem {
   git_stash: GitStash,
 }
@@ -40,30 +43,85 @@ impl StashItem {
   }
 }
 
-#[derive(Debug, Default, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy)]
+enum LoadingOperation {
+  None,
+  LoadingStashes,
+}
+
 pub struct StashList {
   stashes: Vec<StashItem>,
   list_state: ListState,
+  loading: LoadingOperation,
+  action_tx: Option<UnboundedSender<Action>>,
+  repo: Box<dyn GitRepo>,
 }
 
 impl StashList {
-  pub fn new(mut repo: Box<dyn GitRepo>) -> Self {
-    let stashes: Vec<StashItem> =
-      repo.stashes().unwrap().iter().map(|git_stash| StashItem::new(git_stash.clone())).collect();
-    StashList { stashes, list_state: ListState::default() }
+  pub fn new(repo: Box<dyn GitRepo>) -> Self {
+    StashList {
+      stashes: Vec::new(),
+      list_state: ListState::default(),
+      loading: LoadingOperation::None,
+      action_tx: None,
+      repo,
+    }
+  }
+
+  pub fn register_action_handler(&mut self, tx: UnboundedSender<Action>) -> color_eyre::Result<()> {
+    self.action_tx = Some(tx);
+    Ok(())
+  }
+
+  pub async fn load_stashes(&mut self) -> color_eyre::Result<()> {
+    self.loading = LoadingOperation::LoadingStashes;
+    if let Some(tx) = &self.action_tx {
+      tx.send(Action::Render).unwrap();
+    }
+
+    let stashes = self.repo.stashes().await?;
+    self.stashes = stashes.iter().map(|stash| StashItem::new(stash.clone())).collect();
+
+    self.loading = LoadingOperation::None;
+    if let Some(tx) = &self.action_tx {
+      tx.send(Action::Render).unwrap();
+    }
+
+    Ok(())
   }
 }
 
+#[async_trait::async_trait]
 impl Component for StashList {
   fn draw(&mut self, f: &mut Frame<'_>, area: Rect) -> color_eyre::Result<()> {
     let render_items: Vec<ListItem> = self.stashes.iter().map(|stash| stash.render()).collect();
+
+    let title = match self.loading {
+      LoadingOperation::LoadingStashes => "Loading Stashes...",
+      LoadingOperation::None => "Stashes",
+    };
+
     let list = List::new(render_items)
-      .block(Block::default().title("Stashes").borders(Borders::ALL))
+      .block(Block::default().title(title).borders(Borders::ALL))
       .style(Style::default().fg(Color::White))
       .highlight_style(Style::default().add_modifier(Modifier::BOLD))
       .highlight_symbol("→")
       .repeat_highlight_symbol(true);
     f.render_stateful_widget(list, area, &mut self.list_state);
     Ok(())
+  }
+
+  async fn handle_key_events(&mut self, _key: KeyEvent) -> color_eyre::Result<Option<Action>> {
+    Ok(None)
+  }
+
+  async fn update(&mut self, action: Action) -> color_eyre::Result<Option<Action>> {
+    match action {
+      Action::Refresh => {
+        self.load_stashes().await?;
+        Ok(None)
+      },
+      _ => Ok(None),
+    }
   }
 }

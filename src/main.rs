@@ -20,12 +20,20 @@ pub mod utils;
 
 async fn tokio_main() -> Result<()> {
   initialize_logging()?;
-
   initialize_panic_handler()?;
 
   Cli::parse();
-  let mut app = App::new()?;
-  app.run().await?;
+
+  match App::new() {
+    Ok(mut app) => app.run().await?,
+    Err(e) => {
+      if e.to_string().contains("Not a git repository") {
+        eprintln!("Error: The current directory is not a git repository.");
+        std::process::exit(1);
+      }
+      return Err(e);
+    },
+  }
 
   Ok(())
 }
