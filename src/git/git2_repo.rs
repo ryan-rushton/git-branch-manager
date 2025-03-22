@@ -17,8 +17,10 @@ pub struct Git2Repo {
 
 impl Git2Repo {
   pub fn from_cwd() -> Result<Git2Repo, Error> {
+    info!("Creating Git2Repo from current working directory");
     let path_buf = current_dir().expect("Unable to get current working directory");
     let repo = Repository::discover(path_buf.as_path())?;
+    info!("Successfully discovered git repository");
     Ok(Git2Repo { repo: Arc::new(Mutex::new(repo)) })
   }
 
@@ -33,86 +35,100 @@ impl Git2Repo {
 #[async_trait]
 impl GitRepo for Git2Repo {
   async fn local_branches(&self) -> Result<Vec<GitBranch>, Error> {
+    info!("Git2Repo: Fetching local branches");
     let repo = self.repo.lock().await;
     let branches = repo.branches(Some(BranchType::Local))?;
     let loaded_branches: Vec<GitBranch> = branches.filter_map(|branch| self.create_git_branch(branch)).collect();
+    info!("Git2Repo: Found {} local branches", loaded_branches.len());
     Ok(loaded_branches)
   }
 
   async fn stashes(&mut self) -> Result<Vec<GitStash>, Error> {
+    info!("Git2Repo: Fetching stashes");
     let mut repo = self.repo.lock().await;
     let mut stashes: Vec<GitStash> = vec![];
     repo.stash_foreach(|index, message, stash_id| {
       stashes.push(GitStash::new(index, String::from(message), stash_id.to_string()));
       true
     })?;
+    info!("Git2Repo: Found {} stashes", stashes.len());
     Ok(stashes)
   }
 
   async fn checkout_branch_from_name(&self, branch_name: &str) -> Result<(), Error> {
+    info!("Git2Repo: Checking out branch '{}'", branch_name);
     let repo = self.repo.lock().await;
-    info!("Checking out branch {}", branch_name);
     let branch = repo.find_branch(branch_name, BranchType::Local)?;
     let branch_ref = branch.get();
-    info!("Found branch with ref {}", branch_ref.name().unwrap());
+    info!("Git2Repo: Found branch with ref {}", branch_ref.name().unwrap());
 
     let tree = branch_ref.peel_to_tree()?;
     let checkout_result = repo.checkout_tree(tree.as_object(), None);
 
     if checkout_result.is_err() {
-      error!("Failed to checkout tree: {}", checkout_result.unwrap_err());
+      let err = checkout_result.unwrap_err();
+      error!("Git2Repo: Failed to checkout tree: {}", err);
       return Err(Error::Git("Failed to checkout tree".to_string()));
     }
 
     let set_head_result = repo.set_head(branch_ref.name().unwrap());
     if set_head_result.is_err() {
-      error!("Failed to set head to: {}", branch_ref.name().unwrap());
+      error!("Git2Repo: Failed to set head to: {}", branch_ref.name().unwrap());
       return Err(Error::Git("Failed to set HEAD".to_string()));
     }
 
+    info!("Git2Repo: Successfully checked out branch '{}'", branch_name);
     Ok(())
   }
 
   async fn checkout_branch(&self, branch: &GitBranch) -> Result<(), Error> {
-    self.checkout_branch_from_name(&branch.name).await
+    info!("Git2Repo: Checking out branch '{}'", branch.name);
+    self.checkout_branch_from_name(&branch.name).await?;
+    info!("Git2Repo: Successfully checked out branch '{}'", branch.name);
+    Ok(())
   }
 
   async fn validate_branch_name(&self, name: &str) -> Result<bool, Error> {
-    Ok(Branch::name_is_valid(name)?)
+    info!("Git2Repo: Validating branch name '{}'", name);
+    let is_valid = Branch::name_is_valid(name)?;
+    info!("Git2Repo: Branch name '{}' validation result: {}", name, is_valid);
+    Ok(is_valid)
   }
 
-  async fn create_branch(&self, to_create: &GitBranch) -> Result<(), Error> {
+  async fn create_branch(&self, branch: &GitBranch) -> Result<(), Error> {
+    info!("Git2Repo: Creating branch '{}'", branch.name);
     let repo = self.repo.lock().await;
-    info!("Creating branch {}", to_create.name);
     let head = repo.head()?;
     let head_oid = head.target();
 
     if head_oid.is_none() {
-      error!("Attempted to create a branch from a symbolic reference: {}", head_oid.unwrap());
+      error!("Git2Repo: Attempted to create a branch from a symbolic reference");
       return Err(Error::Git("Attempted to create a branch from a symbolic reference".to_string()));
     }
 
     let commit = repo.find_commit(head.target().unwrap())?;
-    info!("Using commit for new branch {}", commit.id());
-    repo.branch(&to_create.name, &commit, false)?;
-    info!("Successfully created branch {}", to_create.name);
+    info!("Git2Repo: Using commit {} for new branch", commit.id());
+    repo.branch(&branch.name, &commit, false)?;
+    info!("Git2Repo: Successfully created branch '{}'", branch.name);
     Ok(())
   }
 
-  async fn delete_branch(&self, to_delete: &GitBranch) -> Result<(), Error> {
+  async fn delete_branch(&self, branch: &GitBranch) -> Result<(), Error> {
+    info!("Git2Repo: Deleting branch '{}'", branch.name);
     let repo = self.repo.lock().await;
     let branches = repo.branches(Some(BranchType::Local))?;
     for res in branches.into_iter() {
       if res.is_err() {
         continue;
       }
-      let (mut branch, _branch_type) = res?;
-      if branch.name().is_err() {
+      let (mut git_branch, _branch_type) = res?;
+      if git_branch.name().is_err() {
         continue;
       }
-      let name = branch.name()?;
-      if name.is_some() && to_delete.name == name.unwrap() {
-        branch.delete()?;
+      let name = git_branch.name()?;
+      if name.is_some() && branch.name == name.unwrap() {
+        git_branch.delete()?;
+        info!("Git2Repo: Successfully deleted branch '{}'", branch.name);
         break;
       }
     }

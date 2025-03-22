@@ -12,7 +12,7 @@ pub struct GitCliRepo {}
 
 impl GitCliRepo {
   pub fn from_cwd() -> Result<GitCliRepo, Error> {
-    // TODO check that the user is in a repo and throw if not
+    info!("Creating GitCliRepo from current working directory");
     Ok(GitCliRepo {})
   }
 }
@@ -41,8 +41,8 @@ async fn run_git_command(args: &[&str]) -> Result<String, Error> {
 #[async_trait]
 impl GitRepo for GitCliRepo {
   async fn local_branches(&self) -> Result<Vec<GitBranch>, Error> {
+    info!("GitCliRepo: Fetching local branches");
     let res = run_git_command(&["branch", "--list", "-vv"]).await?;
-
     let branches: Vec<GitBranch> = res
       .lines()
       .map(|line| {
@@ -64,19 +64,19 @@ impl GitRepo for GitCliRepo {
         let name = String::from(captures.name("name").unwrap().as_str());
         let upstream = captures.name("upstream");
         GitBranch {
-          name,
+          name: name.clone(),
           is_head,
           upstream: upstream.map(|upstream_name| GitRemoteBranch::new(String::from(upstream_name.as_str()))),
         }
       })
       .collect();
-
+    info!("GitCliRepo: Found {} local branches", branches.len());
     Ok(branches)
   }
 
   async fn stashes(&mut self) -> Result<Vec<GitStash>, Error> {
+    info!("GitCliRepo: Fetching stashes");
     let res = run_git_command(&["stash", "list"]).await?;
-
     let stashes: Vec<GitStash> = res
       .lines()
       .enumerate()
@@ -87,31 +87,43 @@ impl GitRepo for GitCliRepo {
         GitStash::new(index, message, stash_id)
       })
       .collect();
-
+    info!("GitCliRepo: Found {} stashes", stashes.len());
     Ok(stashes)
   }
 
   async fn checkout_branch_from_name(&self, branch_name: &str) -> Result<(), Error> {
+    info!("GitCliRepo: Checking out branch '{}'", branch_name);
     run_git_command(&["checkout", branch_name]).await?;
+    info!("GitCliRepo: Successfully checked out branch '{}'", branch_name);
     Ok(())
   }
 
   async fn checkout_branch(&self, branch: &GitBranch) -> Result<(), Error> {
-    self.checkout_branch_from_name(&branch.name).await
-  }
-
-  async fn validate_branch_name(&self, name: &str) -> Result<bool, Error> {
-    let res = run_git_command(&["check-ref-format", "--branch", name]).await;
-    Ok(res.is_ok())
-  }
-
-  async fn create_branch(&self, to_create: &GitBranch) -> Result<(), Error> {
-    run_git_command(&["checkout", "-b", &to_create.name]).await?;
+    info!("GitCliRepo: Checking out branch '{}'", branch.name);
+    self.checkout_branch_from_name(&branch.name).await?;
+    info!("GitCliRepo: Successfully checked out branch '{}'", branch.name);
     Ok(())
   }
 
-  async fn delete_branch(&self, to_delete: &GitBranch) -> Result<(), Error> {
-    run_git_command(&["branch", "-D", &to_delete.name]).await?;
+  async fn validate_branch_name(&self, name: &str) -> Result<bool, Error> {
+    info!("GitCliRepo: Validating branch name '{}'", name);
+    let res = run_git_command(&["check-ref-format", "--branch", name]).await;
+    let is_valid = res.is_ok();
+    info!("GitCliRepo: Branch name '{}' validation result: {}", name, is_valid);
+    Ok(is_valid)
+  }
+
+  async fn create_branch(&self, branch: &GitBranch) -> Result<(), Error> {
+    info!("GitCliRepo: Creating and checking out new branch '{}'", branch.name);
+    run_git_command(&["checkout", "-b", &branch.name]).await?;
+    info!("GitCliRepo: Successfully created and checked out branch '{}'", branch.name);
+    Ok(())
+  }
+
+  async fn delete_branch(&self, branch: &GitBranch) -> Result<(), Error> {
+    info!("GitCliRepo: Deleting branch '{}'", branch.name);
+    run_git_command(&["branch", "-D", &branch.name]).await?;
+    info!("GitCliRepo: Successfully deleted branch '{}'", branch.name);
     Ok(())
   }
 }
