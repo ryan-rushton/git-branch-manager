@@ -18,9 +18,8 @@ pub struct Git2Repo {
 impl Git2Repo {
   pub fn from_cwd() -> Result<Git2Repo, Error> {
     info!("Creating Git2Repo from current working directory");
-    let path_buf = current_dir().expect("Unable to get current working directory");
-    let repo = Repository::discover(path_buf.as_path())?;
-    info!("Successfully discovered git repository");
+    let repo = Repository::discover(".")?;
+    info!("Git repository discovered");
     Ok(Git2Repo { repo: Arc::new(Mutex::new(repo)) })
   }
 

@@ -334,29 +334,23 @@ impl Component for BranchList {
   }
 
   async fn handle_key_events(&mut self, key: KeyEvent) -> color_eyre::Result<Option<Action>> {
-    info!("BranchList: Handling key event: {:?}", key);
     self.clear_error();
 
     if self.mode == Mode::Input {
-      info!("BranchList: In input mode, forwarding key event to branch input");
       return Ok(Some(Action::UpdateNewBranchName(key)));
     }
 
     let action = match key {
       KeyEvent { code: KeyCode::Down, modifiers: KeyModifiers::NONE, kind: _, state: _ } => {
-        info!("BranchList: Down key pressed, returning SelectNextBranch action");
         Some(Action::SelectNextBranch)
       },
       KeyEvent { code: KeyCode::Up, modifiers: KeyModifiers::NONE, kind: _, state: _ } => {
-        info!("BranchList: Up key pressed, returning SelectPreviousBranch action");
         Some(Action::SelectPreviousBranch)
       },
       KeyEvent { code: KeyCode::Char('c' | 'C'), modifiers: KeyModifiers::SHIFT, kind: _, state: _ } => {
-        info!("BranchList: Shift+C pressed, returning InitNewBranch action");
         Some(Action::InitNewBranch)
       },
       KeyEvent { code: KeyCode::Char('c' | 'C'), modifiers: KeyModifiers::NONE, kind: _, state: _ } => {
-        info!("BranchList: C pressed, returning CheckoutSelectedBranch action");
         Some(Action::CheckoutSelectedBranch)
       },
       KeyEvent { code: KeyCode::Char('d' | 'D'), modifiers: KeyModifiers::SHIFT, kind: _, state: _ } => {
@@ -382,30 +376,24 @@ impl Component for BranchList {
   async fn update(&mut self, action: Action) -> color_eyre::Result<Option<Action>> {
     match action {
       Action::SelectPreviousBranch => {
-        info!("BranchList: Handling SelectPreviousBranch action");
         self.select_previous();
         Ok(None)
       },
       Action::SelectNextBranch => {
-        info!("BranchList: Handling SelectNextBranch action");
         self.select_next();
         Ok(None)
       },
       Action::InitNewBranch => {
-        info!("BranchList: Handling InitNewBranch action");
+        info!("BranchList: Initializing new branch input");
         self.mode = Mode::Input;
         self.branch_input.init_style();
-        info!("BranchList: Initialized branch input, returning StartInputMode action");
         Ok(Some(Action::StartInputMode))
       },
       Action::EndInputMod => {
-        info!("BranchList: Handling EndInputMod action");
         self.mode = Mode::Selection;
-        info!("BranchList: Set mode to Selection");
         Ok(None)
       },
       Action::UpdateNewBranchName(key_event) => {
-        info!("BranchList: Handling UpdateNewBranchName action");
         let action = self
           .branch_input
           .handle_key_event(
@@ -414,61 +402,52 @@ impl Component for BranchList {
             self.branches.iter().map(|branch_item| &branch_item.branch).collect(),
           )
           .await;
-        if action.is_some() {
-          info!("BranchList: Branch input returned action: {:?}", action);
-        }
         Ok(action)
       },
       Action::CheckoutSelectedBranch => {
-        info!("BranchList: Handling CheckoutSelectedBranch action");
+        info!("BranchList: Checking out selected branch");
         let result = self.checkout_selected().await;
         self.maybe_handle_git_error(result.err());
         Ok(None)
       },
       Action::CreateBranch(name) => {
-        info!("BranchList: Handling CreateBranch action for branch '{}'", name);
+        info!("BranchList: Creating branch '{}'", name);
         self.mode = Mode::Selection;
-        info!("BranchList: Set mode to Selection");
         let result = self.create_branch(name).await;
         if let Err(e) = &result {
           error!("BranchList: Failed to create branch: {}", e);
         }
         self.maybe_handle_git_error(result.err());
-        info!("BranchList: Branch creation complete, returning EndInputMod action");
         Ok(Some(Action::EndInputMod))
       },
       Action::StageBranchForDeletion => {
-        info!("BranchList: Handling StageBranchForDeletion action");
+        info!("BranchList: Staging branch for deletion");
         self.stage_selected_for_deletion(true);
         Ok(None)
       },
       Action::UnstageBranchForDeletion => {
-        info!("BranchList: Handling UnstageBranchForDeletion action");
+        info!("BranchList: Unstaging branch from deletion");
         self.stage_selected_for_deletion(false);
         Ok(None)
       },
       Action::DeleteBranch => {
-        info!("BranchList: Handling DeleteBranch action");
+        info!("BranchList: Deleting selected branch");
         let result = self.deleted_selected().await;
         self.maybe_handle_git_error(result.err());
         Ok(None)
       },
       Action::DeleteStagedBranches => {
-        info!("BranchList: Handling DeleteStagedBranches action");
+        info!("BranchList: Deleting staged branches");
         let result = self.delete_staged_branches().await;
         self.maybe_handle_git_error(result.err());
         Ok(None)
       },
       Action::Refresh => {
-        info!("BranchList: Handling Refresh action");
         let result = self.load_branches().await;
         self.maybe_handle_git_error(result.err());
         Ok(None)
       },
-      _ => {
-        info!("BranchList: Ignoring unhandled action: {:?}", action);
-        Ok(None)
-      },
+      _ => Ok(None),
     }
   }
 }

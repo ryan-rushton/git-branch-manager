@@ -15,34 +15,31 @@ impl GitCliRepo {
     info!("Creating GitCliRepo from current working directory");
     Ok(GitCliRepo {})
   }
-}
 
-async fn run_git_command(args: &[&str]) -> Result<String, Error> {
-  let args_log_command = args.join(" ");
-  info!("Running `git {}`", args_log_command);
-  let output = TokioCommand::new("git").args(args).output().await;
-  if output.is_err() {
-    let err = output.err().unwrap();
-    error!("Failed to run `git {}`, error: {}", args_log_command, err);
-    return Err(Error::Git(format!("{}", err)));
-  }
+  async fn run_git_command(&self, args: Vec<&str>) -> Result<String, Error> {
+    let args_log_command = args.join(" ");
+    info!("Running `git {}`", args_log_command);
+    let output = TokioCommand::new("git").args(&args).output().await.map_err(|err| {
+      error!("Failed to run `git {}`, error: {}", args_log_command, err);
+      Error::Git(err.to_string())
+    })?;
 
-  let output = output.unwrap();
-  let err = String::from_utf8(output.stderr)?;
-  if !output.status.success() && !err.is_empty() {
-    error!("Failed to run `git {}`, error: {}", args_log_command, err);
-    return Err(Error::Git(err));
+    if !output.status.success() {
+      let err = String::from_utf8_lossy(&output.stderr);
+      error!("Failed to run `git {}`, error: {}", args_log_command, err);
+      return Err(Error::Git(err.to_string()));
+    }
+
+    let content = String::from_utf8_lossy(&output.stdout).to_string();
+    Ok(content)
   }
-  let content = String::from_utf8(output.stdout)?;
-  info!("Received git cli reply:\n{}", content);
-  Ok(content)
 }
 
 #[async_trait]
 impl GitRepo for GitCliRepo {
   async fn local_branches(&self) -> Result<Vec<GitBranch>, Error> {
     info!("GitCliRepo: Fetching local branches");
-    let res = run_git_command(&["branch", "--list", "-vv"]).await?;
+    let res = self.run_git_command(vec!["branch", "--list", "-vv"]).await?;
     let branches: Vec<GitBranch> = res
       .lines()
       .map(|line| {
@@ -76,7 +73,7 @@ impl GitRepo for GitCliRepo {
 
   async fn stashes(&mut self) -> Result<Vec<GitStash>, Error> {
     info!("GitCliRepo: Fetching stashes");
-    let res = run_git_command(&["stash", "list"]).await?;
+    let res = self.run_git_command(vec!["stash", "list"]).await?;
     let stashes: Vec<GitStash> = res
       .lines()
       .enumerate()
@@ -93,7 +90,7 @@ impl GitRepo for GitCliRepo {
 
   async fn checkout_branch_from_name(&self, branch_name: &str) -> Result<(), Error> {
     info!("GitCliRepo: Checking out branch '{}'", branch_name);
-    run_git_command(&["checkout", branch_name]).await?;
+    self.run_git_command(vec!["checkout", branch_name]).await?;
     info!("GitCliRepo: Successfully checked out branch '{}'", branch_name);
     Ok(())
   }
@@ -106,23 +103,19 @@ impl GitRepo for GitCliRepo {
   }
 
   async fn validate_branch_name(&self, name: &str) -> Result<bool, Error> {
-    info!("GitCliRepo: Validating branch name '{}'", name);
-    let res = run_git_command(&["check-ref-format", "--branch", name]).await;
-    let is_valid = res.is_ok();
-    info!("GitCliRepo: Branch name '{}' validation result: {}", name, is_valid);
-    Ok(is_valid)
+    self.run_git_command(vec!["check-ref-format", "--branch", name]).await.map(|_| true)
   }
 
   async fn create_branch(&self, branch: &GitBranch) -> Result<(), Error> {
-    info!("GitCliRepo: Creating and checking out new branch '{}'", branch.name);
-    run_git_command(&["checkout", "-b", &branch.name]).await?;
+    info!("GitCliRepo: Creating branch '{}'", branch.name);
+    self.run_git_command(vec!["checkout", "-b", &branch.name]).await?;
     info!("GitCliRepo: Successfully created and checked out branch '{}'", branch.name);
     Ok(())
   }
 
   async fn delete_branch(&self, branch: &GitBranch) -> Result<(), Error> {
     info!("GitCliRepo: Deleting branch '{}'", branch.name);
-    run_git_command(&["branch", "-D", &branch.name]).await?;
+    self.run_git_command(vec!["branch", "-D", &branch.name]).await?;
     info!("GitCliRepo: Successfully deleted branch '{}'", branch.name);
     Ok(())
   }
