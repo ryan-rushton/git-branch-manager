@@ -1,4 +1,4 @@
-use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+use crossterm::event::{KeyCode, KeyEvent};
 use ratatui::{
   layout::Rect,
   prelude::Color,
@@ -60,10 +60,7 @@ impl BranchInput {
 
     match is_valid {
       Ok(valid) => {
-        if !valid {
-          self.text_input.set_style(Style::default().fg(Color::LightRed));
-          self.input_state.is_valid = Some(false);
-        } else if !is_unique_name {
+        if !valid || !is_unique_name {
           self.text_input.set_style(Style::default().fg(Color::LightRed));
           self.input_state.is_valid = Some(false);
         } else {
@@ -86,14 +83,14 @@ impl BranchInput {
     current_branches: Vec<&GitBranch>,
   ) -> Option<Action> {
     match key_event {
-      KeyEvent { code: KeyCode::Esc, modifiers: KeyModifiers::NONE, kind: _, state: _ } => {
+      KeyEvent { code: KeyCode::Esc, .. } => {
         self.input_state.value = None;
         self.input_state.is_valid = None;
         self.text_input.move_cursor(CursorMove::Head);
         self.text_input.delete_line_by_end();
         Some(Action::EndInputMod)
       },
-      KeyEvent { code: KeyCode::Enter, modifiers: _, kind: _, state: _ } => {
+      KeyEvent { code: KeyCode::Enter, .. } => {
         if !self.input_state.is_valid.unwrap_or(false) {
           return None;
         }
@@ -102,19 +99,17 @@ impl BranchInput {
         self.text_input.move_cursor(CursorMove::Head);
         self.text_input.delete_line_by_end();
 
-        if let Some(name) = new_branch_name {
+        new_branch_name.map_or(Some(Action::EndInputMod), |name| {
           info!("BranchInput: Creating branch '{}'", name);
-          return Some(Action::CreateBranch(name));
-        }
-        Some(Action::EndInputMod)
+          Some(Action::CreateBranch(name))
+        })
       },
       _ => {
         let changed = self.text_input.input(Input::from(key_event));
         if changed {
           self.validate_branch_name(repo, current_branches).await;
-          let new_branch_name = self.get_text();
-          if new_branch_name.is_some() {
-            self.input_state.value = new_branch_name;
+          if let Some(new_name) = self.get_text() {
+            self.input_state.value = Some(new_name);
           }
         }
         None
