@@ -42,23 +42,32 @@ impl BranchInput {
     Some(input)
   }
 
-  fn validate_branch_name(&mut self, repo: &dyn GitRepo, current_branches: Vec<&GitBranch>) {
-    if self.text_input.lines().first().is_none() {
+  async fn validate_branch_name(&mut self, repo: &dyn GitRepo, current_branches: Vec<&GitBranch>) {
+    if self.text_input.lines().is_empty() {
       return;
     }
     let proposed_name = self.text_input.lines().first().unwrap();
-    let is_valid = repo.validate_branch_name(proposed_name);
+    let is_valid = repo.validate_branch_name(proposed_name).await;
     let is_unique_name = !current_branches.iter().any(|b| b.name.eq(proposed_name));
-    if is_valid.is_err() || !is_valid.unwrap() || !is_unique_name {
-      self.text_input.set_style(Style::default().fg(Color::LightRed));
-      self.input_state.is_valid = Some(false);
-      return;
+
+    match is_valid {
+      Ok(valid) => {
+        if !valid || !is_unique_name {
+          self.text_input.set_style(Style::default().fg(Color::LightRed));
+          self.input_state.is_valid = Some(false);
+        } else {
+          self.text_input.set_style(Style::default().fg(Color::LightGreen));
+          self.input_state.is_valid = Some(true);
+        }
+      },
+      Err(_) => {
+        self.text_input.set_style(Style::default().fg(Color::LightRed));
+        self.input_state.is_valid = Some(false);
+      },
     }
-    self.text_input.set_style(Style::default().fg(Color::LightGreen));
-    self.input_state.is_valid = Some(true);
   }
 
-  pub fn handle_key_event(
+  pub async fn handle_key_event(
     &mut self,
     key_event: KeyEvent,
     repo: &dyn GitRepo,
@@ -89,7 +98,7 @@ impl BranchInput {
       },
       _ => {
         if self.text_input.input(Input::from(key_event)) {
-          self.validate_branch_name(repo, current_branches);
+          self.validate_branch_name(repo, current_branches).await;
           let new_branch_name = self.get_text();
           if new_branch_name.is_some() {
             self.input_state.value = new_branch_name;

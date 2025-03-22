@@ -11,11 +11,8 @@ use crate::{
 pub mod branch_list;
 pub mod stash_list;
 
-/// `Component` is a trait that represents a visual and interactive element of the user interface.
-///
-/// Implementors of this trait can be registered with the main application loop and will be able to receive events,
-/// update state, and be rendered on the screen.
-pub trait Component {
+#[async_trait::async_trait]
+pub trait Component: Send + Sync {
   /// Register an action handler that can send actions for processing if necessary.
   ///
   /// # Arguments
@@ -25,10 +22,10 @@ pub trait Component {
   /// # Returns
   ///
   /// * `Result<()>` - An Ok result or an error.
-  #[allow(unused_variables)]
-  fn register_action_handler(&mut self, tx: UnboundedSender<Action>) -> Result<()> {
+  fn register_action_handler(&mut self, _tx: UnboundedSender<Action>) -> Result<()> {
     Ok(())
   }
+
   /// Handle incoming events and produce actions if necessary.
   ///
   /// # Arguments
@@ -38,14 +35,15 @@ pub trait Component {
   /// # Returns
   ///
   /// * `Result<Option<Action>>` - An action to be processed or none.
-  fn handle_events(&mut self, event: Option<Event>) -> Result<Option<Action>> {
+  async fn handle_events(&mut self, event: Option<Event>) -> Result<Option<Action>> {
     let r = match event {
-      Some(Event::Key(key_event)) => self.handle_key_events(key_event)?,
-      Some(Event::Mouse(mouse_event)) => self.handle_mouse_events(mouse_event)?,
+      Some(Event::Key(key_event)) => self.handle_key_events(key_event).await?,
+      Some(Event::Mouse(mouse_event)) => self.handle_mouse_events(mouse_event).await?,
       _ => None,
     };
     Ok(r)
   }
+
   /// Handle key events and produce actions if necessary.
   ///
   /// # Arguments
@@ -55,10 +53,10 @@ pub trait Component {
   /// # Returns
   ///
   /// * `Result<Option<Action>>` - An action to be processed or none.
-  #[allow(unused_variables)]
-  fn handle_key_events(&mut self, key: KeyEvent) -> Result<Option<Action>> {
+  async fn handle_key_events(&mut self, _key: KeyEvent) -> Result<Option<Action>> {
     Ok(None)
   }
+
   /// Handle mouse events and produce actions if necessary.
   ///
   /// # Arguments
@@ -68,10 +66,10 @@ pub trait Component {
   /// # Returns
   ///
   /// * `Result<Option<Action>>` - An action to be processed or none.
-  #[allow(unused_variables)]
-  fn handle_mouse_events(&mut self, mouse: MouseEvent) -> Result<Option<Action>> {
+  async fn handle_mouse_events(&mut self, _mouse: MouseEvent) -> Result<Option<Action>> {
     Ok(None)
   }
+
   /// Update the state of the component based on a received action. (REQUIRED)
   ///
   /// # Arguments
@@ -81,10 +79,10 @@ pub trait Component {
   /// # Returns
   ///
   /// * `Result<Option<Action>>` - An action to be processed or none.
-  #[allow(unused_variables)]
-  fn update(&mut self, action: Action) -> Result<Option<Action>> {
+  async fn update(&mut self, _action: Action) -> Result<Option<Action>> {
     Ok(None)
   }
+
   /// Render the component on the screen. (REQUIRED)
   ///
   /// # Arguments

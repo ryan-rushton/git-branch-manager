@@ -5,13 +5,14 @@ use ratatui::{
   text::Text,
   widgets::{Block, Borders, List, ListItem, ListState, Paragraph, Wrap},
 };
+use tokio::sync::mpsc::UnboundedSender;
 use tracing::error;
 
 use crate::{
   action::Action,
   components::{
-    branch_list::{branch_input::BranchInput, branch_item::BranchItem, instruction_footer::InstructionFooter},
     Component,
+    branch_list::{branch_input::BranchInput, branch_item::BranchItem, instruction_footer::InstructionFooter},
   },
   error::Error,
   git::git_repo::{GitBranch, GitRepo},
@@ -28,10 +29,21 @@ enum Mode {
   Input,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum LoadingOperation {
+  None,
+  LoadingBranches,
+  CheckingOut,
+  Creating,
+  Deleting,
+}
+
 pub struct BranchList {
   mode: Mode,
   repo: Box<dyn GitRepo>,
   error: Option<String>,
+  loading: LoadingOperation,
+  action_tx: Option<UnboundedSender<Action>>,
   // List state
   branches: Vec<BranchItem>,
   list_state: ListState,
@@ -43,19 +55,39 @@ pub struct BranchList {
 
 impl BranchList {
   pub fn new(repo: Box<dyn GitRepo>) -> Self {
-    // Assume branch names are all valid as they come from git
-    let branches: Vec<BranchItem> =
-      repo.local_branches().unwrap().iter().map(|branch| BranchItem::new(branch.clone(), true)).collect();
     BranchList {
       repo,
       mode: Mode::Selection,
       error: None,
-      branches,
+      loading: LoadingOperation::None,
+      action_tx: None,
+      branches: Vec::new(),
       list_state: ListState::default(),
       selected_index: 0,
       branch_input: BranchInput::new(),
       instruction_footer: InstructionFooter::default(),
     }
+  }
+
+  pub fn register_action_handler(&mut self, tx: UnboundedSender<Action>) -> Result<(), Error> {
+    self.action_tx = Some(tx);
+    Ok(())
+  }
+
+  pub async fn load_branches(&mut self) -> Result<(), Error> {
+    self.loading = LoadingOperation::LoadingBranches;
+    if let Some(tx) = &self.action_tx {
+      tx.send(Action::Render).unwrap();
+    }
+
+    let branches = self.repo.local_branches().await?;
+    self.branches = branches.iter().map(|branch| BranchItem::new(branch.clone(), true)).collect();
+    self.loading = LoadingOperation::None;
+
+    if let Some(tx) = &self.action_tx {
+      tx.send(Action::Render).unwrap();
+    }
+    Ok(())
   }
 
   pub fn clear_error(&mut self) {
@@ -90,15 +122,25 @@ impl BranchList {
     self.branches.get(self.selected_index)
   }
 
-  fn checkout_selected(&mut self) -> Result<(), Error> {
+  async fn checkout_selected(&mut self) -> Result<(), Error> {
     let maybe_selected = self.get_selected_branch();
     if maybe_selected.is_none() {
       return Ok(());
     }
     let name_to_checkout = maybe_selected.unwrap().branch.name.clone();
-    self.repo.checkout_branch_from_name(&name_to_checkout)?;
+    self.loading = LoadingOperation::CheckingOut;
+    if let Some(tx) = &self.action_tx {
+      tx.send(Action::Render).unwrap();
+    }
+
+    self.repo.checkout_branch_from_name(&name_to_checkout).await?;
     for existing_branch in self.branches.iter_mut() {
       existing_branch.branch.is_head = existing_branch.branch.name == name_to_checkout;
+    }
+
+    self.loading = LoadingOperation::None;
+    if let Some(tx) = &self.action_tx {
+      tx.send(Action::Render).unwrap();
     }
     Ok(())
   }
@@ -115,23 +157,37 @@ impl BranchList {
     selected.stage_for_deletion(stage);
   }
 
-  pub fn deleted_selected(&mut self) -> Result<(), Error> {
+  pub async fn deleted_selected(&mut self) -> Result<(), Error> {
     let selected = self.branches.get(self.selected_index);
     if selected.is_none() {
       return Ok(());
     }
-    let delete_result = self.repo.delete_branch(&selected.unwrap().branch);
-    if delete_result.is_err() {
-      return Ok(());
+    self.loading = LoadingOperation::Deleting;
+    if let Some(tx) = &self.action_tx {
+      tx.send(Action::Render).unwrap();
     }
-    self.branches.remove(self.selected_index);
-    if self.selected_index >= self.branches.len() {
-      self.selected_index -= 1;
+
+    let delete_result = self.repo.delete_branch(&selected.unwrap().branch).await;
+    if delete_result.is_ok() {
+      self.branches.remove(self.selected_index);
+      if self.selected_index >= self.branches.len() {
+        self.selected_index -= 1;
+      }
+    }
+
+    self.loading = LoadingOperation::None;
+    if let Some(tx) = &self.action_tx {
+      tx.send(Action::Render).unwrap();
     }
     Ok(())
   }
 
-  pub fn delete_staged_branches(&mut self) -> Result<(), Error> {
+  pub async fn delete_staged_branches(&mut self) -> Result<(), Error> {
+    self.loading = LoadingOperation::Deleting;
+    if let Some(tx) = &self.action_tx {
+      tx.send(Action::Render).unwrap();
+    }
+
     let mut indexes_to_delete: Vec<usize> = Vec::new();
 
     for branch_index in 0..self.branches.len() {
@@ -139,7 +195,7 @@ impl BranchList {
       if !branch_item.staged_for_deletion {
         continue;
       }
-      let del_result = self.repo.delete_branch(&branch_item.branch);
+      let del_result = self.repo.delete_branch(&branch_item.branch).await;
       if del_result.is_ok() {
         indexes_to_delete.push(branch_index);
       } else {
@@ -158,19 +214,34 @@ impl BranchList {
     } else if self.selected_index != 0 {
       self.selected_index -= 1
     }
+
+    self.loading = LoadingOperation::None;
+    if let Some(tx) = &self.action_tx {
+      tx.send(Action::Render).unwrap();
+    }
     Ok(())
   }
 
-  fn create_branch(&mut self, name: String) -> Result<(), Error> {
+  async fn create_branch(&mut self, name: String) -> Result<(), Error> {
     let branch = GitBranch { name: name.clone(), is_head: false, upstream: None };
-    self.repo.create_branch(&branch)?;
+    self.loading = LoadingOperation::Creating;
+    if let Some(tx) = &self.action_tx {
+      tx.send(Action::Render).unwrap();
+    }
+
+    self.repo.create_branch(&branch).await?;
     self.branches.push(BranchItem::new(branch, true));
     self.branches.sort_by(|a, b| a.branch.name.cmp(&b.branch.name));
-    self.repo.checkout_branch_from_name(&name)?;
+    self.repo.checkout_branch_from_name(&name).await?;
     for existing_branch in self.branches.iter_mut() {
       existing_branch.branch.is_head = existing_branch.branch.name == name;
     }
     self.selected_index = self.branches.iter().position(|b| b.branch.name == name).unwrap_or(0);
+
+    self.loading = LoadingOperation::None;
+    if let Some(tx) = &self.action_tx {
+      tx.send(Action::Render).unwrap();
+    }
     Ok(())
   }
 
@@ -200,9 +271,18 @@ impl BranchList {
       self.list_state.select(Some(self.selected_index));
     }
 
+    let mut title = String::from("Local Branches");
+    match self.loading {
+      LoadingOperation::LoadingBranches => title = String::from("Loading Branches..."),
+      LoadingOperation::CheckingOut => title = String::from("Checking Out Branch..."),
+      LoadingOperation::Creating => title = String::from("Creating Branch..."),
+      LoadingOperation::Deleting => title = String::from("Deleting Branch..."),
+      LoadingOperation::None => {},
+    }
+
     let render_items: Vec<ListItem> = branches.iter().map(|git_branch| git_branch.render()).collect();
     let list = List::new(render_items)
-      .block(Block::default().title("Local Branches").borders(Borders::ALL))
+      .block(Block::default().title(title).borders(Borders::ALL))
       .style(Style::default().fg(Color::White))
       .highlight_style(Style::default().add_modifier(Modifier::BOLD))
       .highlight_symbol("→")
@@ -225,47 +305,75 @@ impl BranchList {
   }
 }
 
+#[async_trait::async_trait]
 impl Component for BranchList {
-  fn handle_key_events(&mut self, key: KeyEvent) -> color_eyre::Result<Option<Action>> {
+  fn draw(&mut self, f: &mut Frame<'_>, area: Rect) -> color_eyre::Result<()> {
+    let chunks = Layout::default()
+      .direction(Direction::Vertical)
+      .constraints([
+        Constraint::Length(if self.error.is_some() { 3 } else { 0 }),
+        Constraint::Min(1),
+        Constraint::Length(if self.mode == Mode::Input { 3 } else { 0 }),
+        Constraint::Length(3),
+      ])
+      .split(area);
+
+    if self.error.is_some() {
+      self.render_error(f, chunks[0]);
+    }
+
+    self.render_list(f, chunks[1]);
+
+    if self.mode == Mode::Input {
+      self.branch_input.render(f, chunks[2]);
+    }
+
+    self.instruction_footer.render(f, chunks[3], &self.branches, self.get_selected_branch());
+
+    Ok(())
+  }
+
+  async fn handle_key_events(&mut self, key: KeyEvent) -> color_eyre::Result<Option<Action>> {
     self.clear_error();
 
     if self.mode == Mode::Input {
       return Ok(Some(Action::UpdateNewBranchName(key)));
     }
-    match key {
+
+    let action = match key {
       KeyEvent { code: KeyCode::Down, modifiers: KeyModifiers::NONE, kind: _, state: _ } => {
-        Ok(Some(Action::SelectNextBranch))
+        Some(Action::SelectNextBranch)
       },
       KeyEvent { code: KeyCode::Up, modifiers: KeyModifiers::NONE, kind: _, state: _ } => {
-        Ok(Some(Action::SelectPreviousBranch))
+        Some(Action::SelectPreviousBranch)
       },
       KeyEvent { code: KeyCode::Char('c' | 'C'), modifiers: KeyModifiers::SHIFT, kind: _, state: _ } => {
-        Ok(Some(Action::InitNewBranch))
+        Some(Action::InitNewBranch)
       },
       KeyEvent { code: KeyCode::Char('c' | 'C'), modifiers: KeyModifiers::NONE, kind: _, state: _ } => {
-        Ok(Some(Action::CheckoutSelectedBranch))
+        Some(Action::CheckoutSelectedBranch)
       },
       KeyEvent { code: KeyCode::Char('d' | 'D'), modifiers: KeyModifiers::SHIFT, kind: _, state: _ } => {
-        Ok(Some(Action::UnstageBranchForDeletion))
+        Some(Action::UnstageBranchForDeletion)
       },
       KeyEvent { code: KeyCode::Char('d' | 'D'), modifiers: KeyModifiers::CONTROL, kind: _, state: _ } => {
-        Ok(Some(Action::DeleteStagedBranches))
+        Some(Action::DeleteStagedBranches)
       },
       KeyEvent { code: KeyCode::Char('d' | 'D'), modifiers: KeyModifiers::NONE, kind: _, state: _ } => {
         if self.get_selected_branch().is_none() {
-          return Ok(None);
+          None
+        } else {
+          let selected = self.get_selected_branch().unwrap();
+          if selected.staged_for_deletion { Some(Action::DeleteBranch) } else { Some(Action::StageBranchForDeletion) }
         }
-        let selected = self.get_selected_branch().unwrap();
-        if selected.staged_for_deletion {
-          return Ok(Some(Action::DeleteBranch));
-        }
-        Ok(Some(Action::StageBranchForDeletion))
       },
-      _ => Ok(None),
-    }
+      _ => None,
+    };
+
+    Ok(action)
   }
 
-  fn update(&mut self, action: Action) -> color_eyre::Result<Option<Action>> {
+  async fn update(&mut self, action: Action) -> color_eyre::Result<Option<Action>> {
     match action {
       Action::SelectPreviousBranch => {
         self.select_previous();
@@ -285,20 +393,24 @@ impl Component for BranchList {
         Ok(None)
       },
       Action::UpdateNewBranchName(key_event) => {
-        Ok(self.branch_input.handle_key_event(
-          key_event,
-          &*self.repo,
-          self.branches.iter().map(|branch_item| &branch_item.branch).collect(),
-        ))
+        let action = self
+          .branch_input
+          .handle_key_event(
+            key_event,
+            &*self.repo,
+            self.branches.iter().map(|branch_item| &branch_item.branch).collect(),
+          )
+          .await;
+        Ok(action)
       },
       Action::CheckoutSelectedBranch => {
-        let result = self.checkout_selected();
+        let result = self.checkout_selected().await;
         self.maybe_handle_git_error(result.err());
         Ok(None)
       },
       Action::CreateBranch(name) => {
         self.mode = Mode::Selection;
-        let result = self.create_branch(name);
+        let result = self.create_branch(name).await;
         self.maybe_handle_git_error(result.err());
         Ok(Some(Action::EndInputMod))
       },
@@ -311,50 +423,21 @@ impl Component for BranchList {
         Ok(None)
       },
       Action::DeleteBranch => {
-        let result = self.deleted_selected();
+        let result = self.deleted_selected().await;
         self.maybe_handle_git_error(result.err());
         Ok(None)
       },
       Action::DeleteStagedBranches => {
-        let result = self.delete_staged_branches();
+        let result = self.delete_staged_branches().await;
+        self.maybe_handle_git_error(result.err());
+        Ok(None)
+      },
+      Action::Refresh => {
+        let result = self.load_branches().await;
         self.maybe_handle_git_error(result.err());
         Ok(None)
       },
       _ => Ok(None),
     }
-  }
-
-  fn draw(&mut self, f: &mut Frame<'_>, area: Rect) -> color_eyre::Result<()> {
-    if self.mode == Mode::Input {
-      let layout =
-        Layout::new(Direction::Vertical, [Constraint::Fill(1), Constraint::Length(3), Constraint::Length(1)])
-          .margin(1)
-          .split(area);
-      self.render_list(f, layout[0]);
-      self.branch_input.render(f, layout[1]);
-      self.instruction_footer.render(f, layout[2], &self.branches, self.get_selected_branch());
-      return Ok(());
-    }
-
-    if self.error.is_some() {
-      let err_size = self.error.clone().unwrap().lines().count() + 2;
-      let layout = Layout::new(Direction::Vertical, [
-        Constraint::Fill(1),
-        Constraint::Length(u16::try_from(err_size)?),
-        Constraint::Length(1),
-      ])
-      .margin(1)
-      .split(area);
-      self.render_list(f, layout[0]);
-      self.render_error(f, layout[1]);
-      self.instruction_footer.render(f, layout[2], &self.branches, self.get_selected_branch());
-      return Ok(());
-    }
-
-    let layout = Layout::new(Direction::Vertical, [Constraint::Fill(1), Constraint::Length(1)]).margin(1).split(area);
-    self.render_list(f, layout[0]);
-    self.instruction_footer.render(f, layout[1], &self.branches, self.get_selected_branch());
-
-    Ok(())
   }
 }

@@ -5,21 +5,17 @@ use tokio::sync::mpsc;
 
 use crate::{
   action::Action,
-  components::{branch_list::BranchList, stash_list::StashList, Component},
+  components::{Component, branch_list::BranchList, stash_list::StashList},
   config::Config,
-  git::{git2_repo::Git2Repo, git_cli_repo::GitCliRepo},
+  git::{git_cli_repo::GitCliRepo, git2_repo::Git2Repo},
   mode::Mode,
   tui,
-  tui::Tui,
 };
 
 pub enum View {
   Branches,
   Stashes,
 }
-
-const TICK_RATE: f64 = 10.0;
-const FRAME_RATE: f64 = 30.0;
 
 pub struct App {
   pub config: Config,
@@ -34,7 +30,6 @@ pub struct App {
 impl App {
   pub fn new() -> Result<Self> {
     let config = Config::new()?;
-    // TODO only have a single repo that is shared
     let branch_list = Box::new(BranchList::new(Box::new(GitCliRepo::from_cwd().unwrap())));
     let stash_list = Box::new(StashList::new(Box::new(Git2Repo::from_cwd().unwrap())));
     let mode = Mode::Default;
@@ -44,95 +39,165 @@ impl App {
   pub async fn run(&mut self) -> Result<()> {
     let (action_tx, mut action_rx) = mpsc::unbounded_channel();
 
-    let mut tui = tui::Tui::new()?.tick_rate(TICK_RATE).frame_rate(FRAME_RATE);
-    // tui.mouse(true);
+    // Initialize the terminal user interface
+    let mut tui = tui::Tui::new()?;
     tui.enter()?;
 
+    // Register action handlers for components
     self.branch_list.register_action_handler(action_tx.clone())?;
     self.stash_list.register_action_handler(action_tx.clone())?;
 
-    loop {
-      if let Some(e) = tui.next().await {
-        match e {
+    // Initial load of data
+    action_tx.send(Action::Refresh)?;
+
+    // Start the main loop
+    while !self.should_quit {
+      // Render the user interface
+      tui.draw(|f| {
+        let chunks = ratatui::layout::Layout::default()
+          .direction(ratatui::layout::Direction::Vertical)
+          .constraints([ratatui::layout::Constraint::Percentage(100)].as_ref())
+          .split(f.area());
+
+        match self.view {
+          View::Branches => self.branch_list.draw(f, chunks[0]).unwrap(),
+          View::Stashes => self.stash_list.draw(f, chunks[0]).unwrap(),
+        }
+      })?;
+
+      // Handle events
+      if let Some(event) = tui.next().await {
+        match event {
           tui::Event::Quit => action_tx.send(Action::Quit)?,
+          tui::Event::Error => action_tx.send(Action::Error("Unknown error".to_string()))?,
           tui::Event::Tick => action_tx.send(Action::Tick)?,
           tui::Event::Render => action_tx.send(Action::Render)?,
-          tui::Event::Resize(x, y) => action_tx.send(Action::Resize(x, y))?,
           tui::Event::Key(key) => {
-            if self.mode == Mode::Default {
-              let action = match key {
-                KeyEvent { code: KeyCode::Esc, modifiers: _, state: _, kind: _ } => Some(Action::Quit),
-                KeyEvent { code: KeyCode::Char('c' | 'C'), modifiers: KeyModifiers::CONTROL, state: _, kind: _ } => {
-                  Some(Action::Quit)
-                },
-                _ => None,
-              };
-              if action.is_some() {
-                action_tx.send(action.unwrap())?;
-              }
-            };
+            if key.kind == crossterm::event::KeyEventKind::Press {
+              self.handle_key_events(key).await?;
+            }
           },
+          tui::Event::Mouse(_) => {},
+          tui::Event::Resize(w, h) => action_tx.send(Action::Resize(w, h))?,
           _ => {},
-        }
-
-        let component: &mut Box<dyn Component> = match self.view {
-          View::Branches => &mut self.branch_list,
-          View::Stashes => &mut self.stash_list,
-        };
-        if let Some(action) = component.handle_events(Some(e.clone()))? {
-          action_tx.send(action)?;
         }
       }
 
+      // Handle actions
       while let Ok(action) = action_rx.try_recv() {
-        if action != Action::Tick && action != Action::Render {
-          log::debug!("{action:?}");
-        }
-        let component: &mut Box<dyn Component> = match self.view {
-          View::Branches => &mut self.branch_list,
-          View::Stashes => &mut self.stash_list,
-        };
-
         match action {
-          Action::StartInputMode => self.mode = Mode::Input,
-          Action::EndInputMod => self.mode = Mode::Default,
           Action::Quit => self.should_quit = true,
           Action::Suspend => self.should_suspend = true,
           Action::Resume => self.should_suspend = false,
-          Action::Resize(w, h) => {
-            tui.resize(Rect::new(0, 0, w, h))?;
-            tui.draw(|f| {
-              let r = component.draw(f, f.area());
-              if let Err(e) = r {
-                action_tx.send(Action::Error(format!("Failed to draw: {:?}", e))).unwrap();
-              }
-            })?;
+          Action::Refresh => {
+            match self.view {
+              View::Branches => {
+                if let Some(next_action) = self.branch_list.update(action).await? {
+                  action_tx.send(next_action)?;
+                }
+              },
+              View::Stashes => {
+                if let Some(next_action) = self.stash_list.update(action).await? {
+                  action_tx.send(next_action)?;
+                }
+              },
+            }
           },
           Action::Render => {
             tui.draw(|f| {
-              let r = component.draw(f, f.area());
-              if let Err(e) = r {
-                action_tx.send(Action::Error(format!("Failed to draw: {:?}", e))).unwrap();
+              let chunks = ratatui::layout::Layout::default()
+                .direction(ratatui::layout::Direction::Vertical)
+                .constraints([ratatui::layout::Constraint::Percentage(100)].as_ref())
+                .split(f.area());
+
+              match self.view {
+                View::Branches => self.branch_list.draw(f, chunks[0]).unwrap(),
+                View::Stashes => self.stash_list.draw(f, chunks[0]).unwrap(),
               }
             })?;
           },
-          _ => {},
+          Action::Resize(w, h) => {
+            tui.resize(Rect::new(0, 0, w, h))?;
+          },
+          Action::Error(e) => {
+            // TODO: Handle error
+            println!("Error: {}", e);
+          },
+          Action::Tick | Action::StartInputMode | Action::EndInputMod => {},
+          _ => {
+            match self.view {
+              View::Branches => {
+                if let Some(next_action) = self.branch_list.update(action).await? {
+                  action_tx.send(next_action)?;
+                }
+              },
+              View::Stashes => {
+                if let Some(next_action) = self.stash_list.update(action).await? {
+                  action_tx.send(next_action)?;
+                }
+              },
+            }
+          },
         }
-        if let Some(action) = component.update(action.clone())? {
-          action_tx.send(action)?
-        };
       }
+
       if self.should_suspend {
         tui.suspend()?;
         action_tx.send(Action::Resume)?;
-        tui = Tui::new()?.tick_rate(TICK_RATE).frame_rate(FRAME_RATE);
+        tui = tui::Tui::new()?;
         tui.enter()?;
-      } else if self.should_quit {
-        tui.stop()?;
-        break;
       }
     }
+
+    // Exit the terminal interface
     tui.exit()?;
+    Ok(())
+  }
+
+  async fn handle_key_events(&mut self, key: KeyEvent) -> Result<()> {
+    match key {
+      KeyEvent { code: KeyCode::Char('q'), modifiers: KeyModifiers::NONE, .. } => {
+        self.should_quit = true;
+      },
+      KeyEvent { code: KeyCode::Char('c'), modifiers: KeyModifiers::CONTROL, .. } => {
+        self.should_quit = true;
+      },
+      KeyEvent { code: KeyCode::Char('z'), modifiers: KeyModifiers::CONTROL, .. } => {
+        self.should_suspend = true;
+      },
+      KeyEvent { code: KeyCode::Tab, modifiers: KeyModifiers::NONE, .. } => {
+        self.view = match self.view {
+          View::Branches => View::Stashes,
+          View::Stashes => View::Branches,
+        };
+      },
+      _ => {
+        match self.view {
+          View::Branches => {
+            if let Some(action) = self.branch_list.handle_key_events(key).await? {
+              if let Some(next_action) = self.branch_list.update(action).await? {
+                match next_action {
+                  Action::StartInputMode => self.mode = Mode::Input,
+                  Action::EndInputMod => self.mode = Mode::Default,
+                  _ => {},
+                }
+              }
+            }
+          },
+          View::Stashes => {
+            if let Some(action) = self.stash_list.handle_key_events(key).await? {
+              if let Some(next_action) = self.stash_list.update(action).await? {
+                match next_action {
+                  Action::StartInputMode => self.mode = Mode::Input,
+                  Action::EndInputMod => self.mode = Mode::Default,
+                  _ => {},
+                }
+              }
+            }
+          },
+        }
+      },
+    }
     Ok(())
   }
 }

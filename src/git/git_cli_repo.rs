@@ -1,6 +1,6 @@
-use std::process::Command;
-
+use async_trait::async_trait;
 use regex::Regex;
+use tokio::process::Command as TokioCommand;
 use tracing::{error, info};
 
 use crate::{
@@ -17,9 +17,31 @@ impl GitCliRepo {
   }
 }
 
+async fn run_git_command(args: &[&str]) -> Result<String, Error> {
+  let args_log_command = args.join(" ");
+  info!("Running `git {}`", args_log_command);
+  let output = TokioCommand::new("git").args(args).output().await;
+  if output.is_err() {
+    let err = output.err().unwrap();
+    error!("Failed to run `git {}`, error: {}", args_log_command, err);
+    return Err(Error::Git(format!("{}", err)));
+  }
+
+  let output = output.unwrap();
+  let err = String::from_utf8(output.stderr)?;
+  if !output.status.success() && !err.is_empty() {
+    error!("Failed to run `git {}`, error: {}", args_log_command, err);
+    return Err(Error::Git(err));
+  }
+  let content = String::from_utf8(output.stdout)?;
+  info!("Received git cli reply:\n{}", content);
+  Ok(content)
+}
+
+#[async_trait]
 impl GitRepo for GitCliRepo {
-  fn local_branches(&self) -> Result<Vec<GitBranch>, Error> {
-    let res = run_git_command(&["branch", "--list", "-vv"])?;
+  async fn local_branches(&self) -> Result<Vec<GitBranch>, Error> {
+    let res = run_git_command(&["branch", "--list", "-vv"]).await?;
 
     let branches: Vec<GitBranch> = res
       .lines()
@@ -52,60 +74,44 @@ impl GitRepo for GitCliRepo {
     Ok(branches)
   }
 
-  fn stashes(&mut self) -> Result<Vec<GitStash>, Error> {
-    let res = run_git_command(&["branch", "--list"])?;
+  async fn stashes(&mut self) -> Result<Vec<GitStash>, Error> {
+    let res = run_git_command(&["stash", "list"]).await?;
 
     let stashes: Vec<GitStash> = res
       .lines()
       .enumerate()
-      .map(|(index, line)| GitStash::new(index, String::from(line.trim()), String::new()))
+      .map(|(index, line)| {
+        let parts: Vec<&str> = line.splitn(2, ": ").collect();
+        let stash_id = parts.first().unwrap_or(&"").to_string();
+        let message = parts.get(1).unwrap_or(&"").to_string();
+        GitStash::new(index, message, stash_id)
+      })
       .collect();
 
     Ok(stashes)
   }
 
-  fn checkout_branch_from_name(&self, branch_name: &str) -> Result<(), Error> {
-    run_git_command(&["checkout", branch_name])?;
+  async fn checkout_branch_from_name(&self, branch_name: &str) -> Result<(), Error> {
+    run_git_command(&["checkout", branch_name]).await?;
     Ok(())
   }
 
-  fn checkout_branch(&self, branch: &GitBranch) -> Result<(), Error> {
-    self.checkout_branch_from_name(&branch.name)
+  async fn checkout_branch(&self, branch: &GitBranch) -> Result<(), Error> {
+    self.checkout_branch_from_name(&branch.name).await
   }
 
-  fn validate_branch_name(&self, name: &str) -> Result<bool, Error> {
-    let res = run_git_command(&["check-ref-format", "--branch", name]);
+  async fn validate_branch_name(&self, name: &str) -> Result<bool, Error> {
+    let res = run_git_command(&["check-ref-format", "--branch", name]).await;
     Ok(res.is_ok())
   }
 
-  fn create_branch(&self, to_create: &GitBranch) -> Result<(), Error> {
-    run_git_command(&["checkout", "-b", &to_create.name])?;
+  async fn create_branch(&self, to_create: &GitBranch) -> Result<(), Error> {
+    run_git_command(&["checkout", "-b", &to_create.name]).await?;
     Ok(())
   }
 
-  fn delete_branch(&self, to_delete: &GitBranch) -> Result<(), Error> {
-    run_git_command(&["branch", "-D", &to_delete.name])?;
+  async fn delete_branch(&self, to_delete: &GitBranch) -> Result<(), Error> {
+    run_git_command(&["branch", "-D", &to_delete.name]).await?;
     Ok(())
   }
-}
-
-fn run_git_command(args: &[&str]) -> Result<String, Error> {
-  let args_log_command = args.join(" ");
-  info!("Running `git {}`", args_log_command);
-  let res = Command::new("git").args(args).output();
-  if res.is_err() {
-    let err = res.err().unwrap();
-    error!("Failed to run `git {}`, error: {}", args_log_command, err);
-    return Err(Error::Git(format!("{}", err)));
-  }
-
-  let output = res.unwrap();
-  let err = String::from_utf8(output.stderr)?;
-  if !output.status.success() && !err.is_empty() {
-    error!("Failed to run `git {}`, error: {}", args_log_command, err);
-    return Err(Error::Git(err));
-  }
-  let content = String::from_utf8(output.stdout)?;
-  info!("Received git cli reply:\n{}", content);
-  Ok(content)
 }
