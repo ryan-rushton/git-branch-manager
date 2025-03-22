@@ -19,6 +19,17 @@ pub struct GitCliRepo {
 impl GitCliRepo {
   pub fn from_cwd() -> Result<GitCliRepo, Error> {
     info!("Creating GitCliRepo from current working directory");
+
+    // Check if current directory is a git repository
+    let output = std::process::Command::new("git")
+      .args(["rev-parse", "--git-dir"])
+      .output()
+      .map_err(|e| Error::Git(e.to_string()))?;
+
+    if !output.status.success() {
+      return Err(Error::NotAGitRepository);
+    }
+
     Ok(GitCliRepo { branch_cache: Arc::new(RwLock::new(Vec::new())), stash_cache: Arc::new(RwLock::new(Vec::new())) })
   }
 

@@ -34,7 +34,7 @@ pub struct App {
 impl App {
   pub fn new() -> Result<Self> {
     let config = Config::new()?;
-    let git_repo = GitCliRepo::from_cwd().unwrap();
+    let git_repo = GitCliRepo::from_cwd().map_err(|e| color_eyre::eyre::eyre!(e.to_string()))?;
     let branch_list = Box::new(BranchList::new(Box::new(git_repo.clone())));
     let stash_list = Box::new(StashList::new(Box::new(git_repo)));
     let mode = Mode::Default;

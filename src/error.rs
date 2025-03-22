@@ -2,6 +2,8 @@ use thiserror::Error;
 
 #[derive(Debug, Error)]
 pub enum Error {
+  #[error("Not a git repository")]
+  NotAGitRepository,
   #[error("Git error: {0}")]
   Git(String),
   #[error("IO error: {0}")]
