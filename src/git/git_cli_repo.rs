@@ -41,8 +41,6 @@ impl GitCliRepo {
     // Clone the command string for error reporting
     let args_log_command_clone = args_log_command.clone();
 
-    sleep(Duration::from_millis(2000)).await;
-
     // Spawn the command in a separate task
     let output = tokio::spawn(async move {
       TokioCommand::new("git").args(&args).output().await.map_err(|err| {
