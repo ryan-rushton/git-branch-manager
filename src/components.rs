@@ -9,6 +9,7 @@ use crate::{
 };
 
 pub mod branch_list;
+pub mod error_component;
 pub mod stash_list;
 
 #[async_trait::async_trait]

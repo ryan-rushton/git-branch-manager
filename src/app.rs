@@ -7,12 +7,11 @@ use tokio::sync::mpsc;
 
 use crate::{
   action::Action,
-  components::{Component, branch_list::BranchList, stash_list::StashList},
+  components::{Component, branch_list::BranchList, error_component::ErrorComponent, stash_list::StashList},
   config::Config,
   git::git_cli_repo::GitCliRepo,
   mode::Mode,
-  tui,
-  tui::Tui,
+  tui::{self, Tui},
 };
 
 pub enum View {
@@ -27,6 +26,7 @@ pub struct App {
   pub config: Config,
   pub branch_list: Box<dyn Component>,
   pub stash_list: Box<dyn Component>,
+  pub error_component: ErrorComponent,
   pub should_quit: bool,
   pub should_suspend: bool,
   pub mode: Mode,
@@ -39,8 +39,18 @@ impl App {
     let git_repo = GitCliRepo::from_cwd().map_err(|e| color_eyre::eyre::eyre!(e.to_string()))?;
     let branch_list = Box::new(BranchList::new(Arc::new(git_repo.clone())));
     let stash_list = Box::new(StashList::new(Box::new(git_repo)));
+    let error_component = ErrorComponent::default();
     let mode = Mode::Default;
-    Ok(Self { config, branch_list, stash_list, should_quit: false, should_suspend: false, mode, view: View::Branches })
+    Ok(Self {
+      config,
+      branch_list,
+      stash_list,
+      error_component,
+      should_quit: false,
+      should_suspend: false,
+      mode,
+      view: View::Branches,
+    })
   }
 
   pub async fn run(&mut self) -> Result<()> {
@@ -63,27 +73,37 @@ impl App {
           tui::Event::Render => action_tx.send(Action::Render)?,
           tui::Event::Resize(x, y) => action_tx.send(Action::Resize(x, y))?,
           tui::Event::Key(key) => {
-            if self.mode == Mode::Default {
-              let action = match key {
-                KeyEvent { code: KeyCode::Esc, modifiers: _, state: _, kind: _ } => Some(Action::Quit),
-                KeyEvent { code: KeyCode::Char('c' | 'C'), modifiers: KeyModifiers::CONTROL, state: _, kind: _ } => {
-                  Some(Action::Quit)
-                },
-                _ => None,
-              };
-              if action.is_some() {
-                action_tx.send(action.unwrap())?;
-              }
-            };
+            match key {
+              KeyEvent { code: KeyCode::Char('c' | 'C'), modifiers: KeyModifiers::CONTROL, state: _, kind: _ } => {
+                action_tx.send(Action::Quit)?
+              },
+              _ => {
+                match self.mode {
+                  Mode::Error => {},
+                  Mode::Input => {},
+                  Mode::Default => {
+                    if let KeyEvent { code: KeyCode::Esc, modifiers: _, state: _, kind: _ } = key {
+                      action_tx.send(Action::Quit)?
+                    }
+                  },
+                }
+              },
+            }
           },
           _ => {},
         }
 
-        let component: &mut Box<dyn Component> = match self.view {
-          View::Branches => &mut self.branch_list,
-          View::Stashes => &mut self.stash_list,
+        let maybe_action = match self.mode {
+          Mode::Error => self.error_component.handle_events(Some(e.clone())).await?,
+          _ => {
+            let component: &mut Box<dyn Component> = match self.view {
+              View::Branches => &mut self.branch_list,
+              View::Stashes => &mut self.stash_list,
+            };
+            component.handle_events(Some(e.clone())).await?
+          },
         };
-        if let Some(action) = component.handle_events(Some(e.clone())).await? {
+        if let Some(action) = maybe_action {
           action_tx.send(action)?;
         }
       }
@@ -97,25 +117,33 @@ impl App {
           View::Stashes => &mut self.stash_list,
         };
 
-        match action {
+        match &action {
           Action::StartInputMode => self.mode = Mode::Input,
           Action::EndInputMod => self.mode = Mode::Default,
           Action::Quit => self.should_quit = true,
           Action::Suspend => self.should_suspend = true,
           Action::Resume => self.should_suspend = false,
+          Action::Error(message) => {
+            self.mode = Mode::Error;
+            self.error_component.set_message(message.clone());
+            tui.clear()?
+          },
+          Action::ExitError => {
+            self.mode = Mode::Default;
+            tui.clear()?
+          },
           Action::Resize(w, h) => {
-            tui.resize(Rect::new(0, 0, w, h))?;
-            tui.draw(|f| {
-              let r = component.draw(f, f.area());
-              if let Err(e) = r {
-                action_tx.send(Action::Error(format!("Failed to draw: {:?}", e))).unwrap();
-              }
-            })?;
+            tui.resize(Rect::new(0, 0, *w, *h))?;
+            tui.clear()?;
+            action_tx.send(Action::Render)?
           },
           Action::Render => {
             tui.draw(|f| {
-              let r = component.draw(f, f.area());
-              if let Err(e) = r {
+              let result = match self.mode {
+                Mode::Error => self.error_component.draw(f, f.area()),
+                _ => component.draw(f, f.area()),
+              };
+              if let Err(e) = result {
                 action_tx.send(Action::Error(format!("Failed to draw: {:?}", e))).unwrap();
               }
             })?;
@@ -124,12 +152,8 @@ impl App {
             if let Some(next_action) = component.update(action.clone()).await? {
               action_tx.send(next_action)?;
             }
-            tui.draw(|f| {
-              let r = component.draw(f, f.area());
-              if let Err(e) = r {
-                action_tx.send(Action::Error(format!("Failed to draw: {:?}", e))).unwrap();
-              }
-            })?;
+            tui.clear()?;
+            action_tx.send(Action::Render)?;
           },
           _ => {},
         }

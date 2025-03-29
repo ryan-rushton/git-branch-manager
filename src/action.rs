@@ -10,6 +10,7 @@ pub enum Action {
   DeleteStagedBranches,
   EndInputMod,
   Error(String),
+  ExitError,
   InitNewBranch,
   Quit,
   Refresh,

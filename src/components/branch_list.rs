@@ -7,8 +7,7 @@ use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use ratatui::{
   layout::{Constraint, Direction, Layout, Rect},
   style::{Color, Modifier, Style},
-  text::Text,
-  widgets::{Block, Borders, List, ListItem, ListState, Paragraph, Wrap},
+  widgets::{Block, Borders, List, ListItem, ListState},
 };
 use tokio::{sync::mpsc::UnboundedSender, task::spawn};
 use tracing::{error, info, warn};
@@ -19,7 +18,6 @@ use crate::{
     Component,
     branch_list::{branch_input::BranchInput, branch_item::BranchItem, instruction_footer::InstructionFooter},
   },
-  error::Error,
   git::git_repo::{GitBranch, GitRepo},
   tui::Frame,
 };
@@ -46,7 +44,6 @@ enum LoadingOperation {
 // Shared state that can be accessed from async blocks
 #[derive(Clone)]
 struct SharedState {
-  error: Arc<Mutex<Option<String>>>,
   loading: Arc<Mutex<LoadingOperation>>,
   branches: Arc<Mutex<Vec<BranchItem>>>,
   selected_index: Arc<Mutex<usize>>,
@@ -56,18 +53,10 @@ struct SharedState {
 impl SharedState {
   fn new() -> Self {
     SharedState {
-      error: Arc::new(Mutex::new(None)),
       loading: Arc::new(Mutex::new(LoadingOperation::None)),
       branches: Arc::new(Mutex::new(Vec::new())),
       selected_index: Arc::new(Mutex::new(0)),
       action_tx: Arc::new(Mutex::new(None)),
-    }
-  }
-
-  fn set_error(&self, err: Option<Error>) {
-    if let Some(error) = err {
-      let mut error_guard = self.error.lock().unwrap();
-      *error_guard = Some(error.to_string());
     }
   }
 
@@ -79,6 +68,13 @@ impl SharedState {
   fn send_render(&self) {
     if let Some(tx) = self.action_tx.lock().unwrap().as_ref() {
       let _ = tx.send(Action::Render);
+    }
+  }
+
+  fn send_error(&self, message: String) {
+    let action_tx = self.action_tx.lock().unwrap();
+    if action_tx.is_some() {
+      let _ = action_tx.as_ref().unwrap().send(Action::Error(message));
     }
   }
 
@@ -107,9 +103,7 @@ pub struct BranchList {
   // Moved to shared state
   shared_state: SharedState,
   // Local cached copies for rendering
-  error: Option<String>,
   loading: LoadingOperation,
-  action_tx: Option<UnboundedSender<Action>>,
   branches: Vec<BranchItem>,
   list_state: ListState,
   selected_index: usize,
@@ -126,9 +120,7 @@ impl BranchList {
       repo,
       mode: Mode::Selection,
       shared_state,
-      error: None,
       loading: LoadingOperation::None,
-      action_tx: None,
       branches: Vec::new(),
       list_state: ListState::default(),
       selected_index: 0,
@@ -137,15 +129,8 @@ impl BranchList {
     }
   }
 
-  pub fn register_action_handler(&mut self, tx: UnboundedSender<Action>) -> Result<(), Error> {
-    self.action_tx = Some(tx.clone());
-    *self.shared_state.action_tx.lock().unwrap() = Some(tx);
-    Ok(())
-  }
-
   // Sync UI state with shared state
   fn sync_state_for_render(&mut self) {
-    self.error = self.shared_state.error.lock().unwrap().clone();
     self.loading = *self.shared_state.loading.lock().unwrap();
     self.branches = self.shared_state.get_branches();
     self.selected_index = self.shared_state.get_selected_index();
@@ -171,7 +156,7 @@ impl BranchList {
           },
           Err(err) => {
             error!("{}", err);
-            state.set_error(Some(err));
+            state.send_error(err.to_string());
             state.set_loading(LoadingOperation::None);
             state.send_render();
           },
@@ -180,11 +165,6 @@ impl BranchList {
 
       spawn(future);
     }
-  }
-
-  pub fn clear_error(&mut self) {
-    *self.shared_state.error.lock().unwrap() = None;
-    self.error = None;
   }
 
   pub fn select_previous(&mut self) {
@@ -249,7 +229,7 @@ impl BranchList {
 
         if let Err(err) = checkout_result {
           error!("{}", err);
-          state.set_error(Some(err));
+          state.send_error(err.to_string());
           state.set_loading(LoadingOperation::None);
           state.send_render();
           return;
@@ -313,7 +293,7 @@ impl BranchList {
 
         if let Err(err) = delete_result {
           error!("{}", err);
-          state.set_error(Some(err));
+          state.send_error(err.to_string());
           state.set_loading(LoadingOperation::None);
           state.send_render();
           return;
@@ -427,7 +407,7 @@ impl BranchList {
         let create_result = repo_clone.create_branch(&branch).await;
         if let Err(err) = create_result {
           error!("{}", err);
-          state.set_error(Some(err));
+          state.send_error(err.to_string());
           state.set_loading(LoadingOperation::None);
           state.send_render();
           return;
@@ -437,7 +417,7 @@ impl BranchList {
         let checkout_result = repo_clone.checkout_branch_from_name(&name).await;
         if let Err(err) = checkout_result {
           error!("{}", err);
-          state.set_error(Some(err));
+          state.send_error(err.to_string());
           state.set_loading(LoadingOperation::None);
           state.send_render();
           return;
@@ -506,55 +486,41 @@ impl BranchList {
 
     f.render_stateful_widget(list, area, &mut self.list_state);
   }
-
-  fn render_error(&mut self, f: &mut Frame<'_>, area: Rect) {
-    if self.error.is_none() {
-      return;
-    }
-    let error_message = self.error.as_ref().unwrap().clone();
-    let text = Text::from(error_message);
-    let component = Paragraph::new(text)
-      .block(Block::bordered().title("Error"))
-      .style(Style::from(Color::Red))
-      .wrap(Wrap { trim: true });
-    f.render_widget(component, area);
-  }
 }
 
 #[async_trait::async_trait]
 impl Component for BranchList {
-  fn draw(&mut self, f: &mut Frame<'_>, area: Rect) -> color_eyre::Result<()> {
+  fn register_action_handler(&mut self, tx: UnboundedSender<Action>) -> color_eyre::Result<()> {
+    *self.shared_state.action_tx.lock().unwrap() = Some(tx);
+    Ok(())
+  }
+
+  fn draw(&mut self, frame: &mut Frame<'_>, area: Rect) -> color_eyre::Result<()> {
     // Sync with shared state before rendering
     self.sync_state_for_render();
 
-    let chunks = Layout::default()
-      .direction(Direction::Vertical)
+    let layout_base = Layout::default().direction(Direction::Vertical);
+
+    let chunks = layout_base
       .constraints([
-        Constraint::Length(if self.error.is_some() { 3 } else { 0 }),
         Constraint::Min(1),
         Constraint::Length(if self.mode == Mode::Input { 3 } else { 0 }),
         Constraint::Length(3),
       ])
       .split(area);
 
-    if self.error.is_some() {
-      self.render_error(f, chunks[0]);
-    }
-
-    self.render_list(f, chunks[1]);
+    self.render_list(frame, chunks[0]);
 
     if self.mode == Mode::Input {
-      self.branch_input.render(f, chunks[2]);
+      self.branch_input.render(frame, chunks[1]);
     }
 
-    self.instruction_footer.render(f, chunks[3], &self.branches, self.get_selected_branch());
+    self.instruction_footer.render(frame, chunks[2], &self.branches, self.get_selected_branch());
 
     Ok(())
   }
 
   async fn handle_key_events(&mut self, key: KeyEvent) -> color_eyre::Result<Option<Action>> {
-    self.clear_error();
-
     if self.mode == Mode::Input {
       return Ok(Some(Action::UpdateNewBranchName(key)));
     }
