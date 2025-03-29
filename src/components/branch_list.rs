@@ -10,7 +10,7 @@ use ratatui::{
   text::Text,
   widgets::{Block, Borders, List, ListItem, ListState, Paragraph, Wrap},
 };
-use tokio::{sync::mpsc::UnboundedSender, task::spawn, time::error::Elapsed};
+use tokio::{sync::mpsc::UnboundedSender, task::spawn};
 use tracing::{error, info, warn};
 
 use crate::{
