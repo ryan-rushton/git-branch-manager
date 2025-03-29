@@ -1,4 +1,7 @@
-use std::sync::{Arc, Mutex};
+use std::{
+  sync::{Arc, Mutex},
+  time::SystemTime,
+};
 
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use ratatui::{
@@ -7,8 +10,8 @@ use ratatui::{
   text::Text,
   widgets::{Block, Borders, List, ListItem, ListState, Paragraph, Wrap},
 };
-use tokio::{sync::mpsc::UnboundedSender, task::spawn};
-use tracing::{error, info};
+use tokio::{sync::mpsc::UnboundedSender, task::spawn, time::error::Elapsed};
+use tracing::{error, info, warn};
 
 use crate::{
   action::Action,
@@ -34,10 +37,10 @@ enum Mode {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum LoadingOperation {
   None,
-  LoadingBranches,
-  CheckingOut,
-  Creating,
-  Deleting,
+  LoadingBranches(SystemTime),
+  CheckingOut(SystemTime),
+  Creating(SystemTime),
+  Deleting(SystemTime),
 }
 
 // Shared state that can be accessed from async blocks
@@ -153,7 +156,7 @@ impl BranchList {
     let repo_clone = self.repo.clone(); // Assuming repo can be cloned, might need a different approach
 
     move || {
-      state.set_loading(LoadingOperation::LoadingBranches);
+      state.set_loading(LoadingOperation::LoadingBranches(SystemTime::now()));
       state.send_render();
 
       let future = async move {
@@ -238,7 +241,7 @@ impl BranchList {
       }
 
       let name_to_checkout = maybe_selected.unwrap().branch.name.clone();
-      state.set_loading(LoadingOperation::CheckingOut);
+      state.set_loading(LoadingOperation::CheckingOut(SystemTime::now()));
       state.send_render();
 
       let future = async move {
@@ -300,7 +303,7 @@ impl BranchList {
         return;
       }
 
-      state.set_loading(LoadingOperation::Deleting);
+      state.set_loading(LoadingOperation::Deleting(SystemTime::now()));
       state.send_render();
 
       let selected_branch = selected.unwrap().branch.clone();
@@ -339,7 +342,7 @@ impl BranchList {
     let repo_clone = self.repo.clone();
 
     move || {
-      state.set_loading(LoadingOperation::Deleting);
+      state.set_loading(LoadingOperation::Deleting(SystemTime::now()));
       state.send_render();
 
       let branches = state.get_branches();
@@ -416,7 +419,7 @@ impl BranchList {
 
     move || {
       let branch = GitBranch { name: name.clone(), is_head: false, upstream: None };
-      state.set_loading(LoadingOperation::Creating);
+      state.set_loading(LoadingOperation::Creating(SystemTime::now()));
       state.send_render();
 
       let future = async move {
@@ -486,10 +489,10 @@ impl BranchList {
 
     let mut title = String::from("Local Branches");
     match self.loading {
-      LoadingOperation::LoadingBranches => title = String::from("Loading Branches..."),
-      LoadingOperation::CheckingOut => title = String::from("Checking Out Branch..."),
-      LoadingOperation::Creating => title = String::from("Creating Branch..."),
-      LoadingOperation::Deleting => title = String::from("Deleting Branch..."),
+      LoadingOperation::LoadingBranches(time) => title = format!("Loading Branches...({})", format_time_elapsed(time)),
+      LoadingOperation::CheckingOut(time) => title = format!("Checking Out Branch...({})", format_time_elapsed(time)),
+      LoadingOperation::Creating(time) => title = format!("Creating Branch...({})", format_time_elapsed(time)),
+      LoadingOperation::Deleting(time) => title = format!("Deleting Branch...({})", format_time_elapsed(time)),
       LoadingOperation::None => {},
     }
 
@@ -660,5 +663,15 @@ impl Component for BranchList {
       },
       _ => Ok(None),
     }
+  }
+}
+
+fn format_time_elapsed(time: SystemTime) -> String {
+  match time.elapsed() {
+    Ok(elapsed) => format!("{:.1}s", elapsed.as_secs_f64()),
+    Err(err) => {
+      warn!("Failed to get system time {}", err);
+      String::from("xs")
+    },
   }
 }
