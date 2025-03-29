@@ -1,3 +1,5 @@
+use std::sync::{Arc, Mutex};
+
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use ratatui::{
   layout::{Constraint, Direction, Layout, Rect},
@@ -5,7 +7,7 @@ use ratatui::{
   text::Text,
   widgets::{Block, Borders, List, ListItem, ListState, Paragraph, Wrap},
 };
-use tokio::sync::mpsc::UnboundedSender;
+use tokio::{sync::mpsc::UnboundedSender, task::spawn};
 use tracing::{error, info};
 
 use crate::{
@@ -29,7 +31,7 @@ enum Mode {
   Input,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum LoadingOperation {
   None,
   LoadingBranches,
@@ -38,13 +40,73 @@ enum LoadingOperation {
   Deleting,
 }
 
+// Shared state that can be accessed from async blocks
+#[derive(Clone)]
+struct SharedState {
+  error: Arc<Mutex<Option<String>>>,
+  loading: Arc<Mutex<LoadingOperation>>,
+  branches: Arc<Mutex<Vec<BranchItem>>>,
+  selected_index: Arc<Mutex<usize>>,
+  action_tx: Arc<Mutex<Option<UnboundedSender<Action>>>>,
+}
+
+impl SharedState {
+  fn new() -> Self {
+    SharedState {
+      error: Arc::new(Mutex::new(None)),
+      loading: Arc::new(Mutex::new(LoadingOperation::None)),
+      branches: Arc::new(Mutex::new(Vec::new())),
+      selected_index: Arc::new(Mutex::new(0)),
+      action_tx: Arc::new(Mutex::new(None)),
+    }
+  }
+
+  fn set_error(&self, err: Option<Error>) {
+    if let Some(error) = err {
+      let mut error_guard = self.error.lock().unwrap();
+      *error_guard = Some(error.to_string());
+    }
+  }
+
+  fn set_loading(&self, op: LoadingOperation) {
+    let mut loading_guard = self.loading.lock().unwrap();
+    *loading_guard = op;
+  }
+
+  fn send_render(&self) {
+    if let Some(tx) = self.action_tx.lock().unwrap().as_ref() {
+      let _ = tx.send(Action::Render);
+    }
+  }
+
+  fn update_branches(&self, new_branches: Vec<BranchItem>) {
+    let mut branches_guard = self.branches.lock().unwrap();
+    *branches_guard = new_branches;
+  }
+
+  fn get_branches(&self) -> Vec<BranchItem> {
+    self.branches.lock().unwrap().clone()
+  }
+
+  fn update_selected_index(&self, index: usize) {
+    let mut index_guard = self.selected_index.lock().unwrap();
+    *index_guard = index;
+  }
+
+  fn get_selected_index(&self) -> usize {
+    *self.selected_index.lock().unwrap()
+  }
+}
+
 pub struct BranchList {
   mode: Mode,
-  repo: Box<dyn GitRepo>,
+  repo: Arc<dyn GitRepo>,
+  // Moved to shared state
+  shared_state: SharedState,
+  // Local cached copies for rendering
   error: Option<String>,
   loading: LoadingOperation,
   action_tx: Option<UnboundedSender<Action>>,
-  // List state
   branches: Vec<BranchItem>,
   list_state: ListState,
   selected_index: usize,
@@ -54,10 +116,13 @@ pub struct BranchList {
 }
 
 impl BranchList {
-  pub fn new(repo: Box<dyn GitRepo>) -> Self {
+  pub fn new(repo: Arc<dyn GitRepo>) -> Self {
+    let shared_state = SharedState::new();
+
     BranchList {
       repo,
       mode: Mode::Selection,
+      shared_state,
       error: None,
       loading: LoadingOperation::None,
       action_tx: None,
@@ -70,190 +135,338 @@ impl BranchList {
   }
 
   pub fn register_action_handler(&mut self, tx: UnboundedSender<Action>) -> Result<(), Error> {
-    self.action_tx = Some(tx);
+    self.action_tx = Some(tx.clone());
+    *self.shared_state.action_tx.lock().unwrap() = Some(tx);
     Ok(())
   }
 
-  pub async fn load_branches(&mut self) -> Result<(), Error> {
-    self.loading = LoadingOperation::LoadingBranches;
-    if let Some(tx) = &self.action_tx {
-      tx.send(Action::Render).unwrap();
-    }
+  // Sync UI state with shared state
+  fn sync_state_for_render(&mut self) {
+    self.error = self.shared_state.error.lock().unwrap().clone();
+    self.loading = *self.shared_state.loading.lock().unwrap();
+    self.branches = self.shared_state.get_branches();
+    self.selected_index = self.shared_state.get_selected_index();
+  }
 
-    let branches = self.repo.local_branches().await?;
-    self.branches = branches.iter().map(|branch| BranchItem::new(branch.clone(), true)).collect();
-    self.loading = LoadingOperation::None;
+  pub fn load_branches(&self) -> impl FnOnce() {
+    let state = self.shared_state.clone();
+    let repo_clone = self.repo.clone(); // Assuming repo can be cloned, might need a different approach
 
-    if let Some(tx) = &self.action_tx {
-      tx.send(Action::Render).unwrap();
+    move || {
+      state.set_loading(LoadingOperation::LoadingBranches);
+      state.send_render();
+
+      let future = async move {
+        let branches_result = repo_clone.local_branches().await;
+
+        match branches_result {
+          Ok(branches) => {
+            let branch_items = branches.iter().map(|branch| BranchItem::new(branch.clone(), true)).collect();
+            state.update_branches(branch_items);
+            state.set_loading(LoadingOperation::None);
+            state.send_render();
+          },
+          Err(err) => {
+            error!("{}", err);
+            state.set_error(Some(err));
+            state.set_loading(LoadingOperation::None);
+            state.send_render();
+          },
+        }
+      };
+
+      spawn(future);
     }
-    Ok(())
   }
 
   pub fn clear_error(&mut self) {
+    *self.shared_state.error.lock().unwrap() = None;
     self.error = None;
   }
 
   pub fn select_previous(&mut self) {
-    if self.selected_index == 0 {
-      self.selected_index = self.branches.len() - 1;
+    let branches = self.shared_state.branches.lock().unwrap();
+    let mut selected_idx = self.shared_state.selected_index.lock().unwrap();
+
+    if *selected_idx == 0 {
+      *selected_idx = branches.len() - 1;
       return;
     }
-    if self.selected_index >= self.branches.len() {
-      self.selected_index = self.branches.len() - 1;
+    if *selected_idx >= branches.len() {
+      *selected_idx = branches.len() - 1;
       return;
     }
-    self.selected_index -= 1;
+    *selected_idx -= 1;
+
+    // Update local copy for rendering
+    self.selected_index = *selected_idx;
   }
 
   pub fn select_next(&mut self) {
-    if self.selected_index == self.branches.len() - 1 {
-      self.selected_index = 0;
+    let branches = self.shared_state.branches.lock().unwrap();
+    let mut selected_idx = self.shared_state.selected_index.lock().unwrap();
+
+    if *selected_idx == branches.len() - 1 {
+      *selected_idx = 0;
       return;
     }
-    if self.selected_index >= self.branches.len() {
-      self.selected_index = 0;
+    if *selected_idx >= branches.len() {
+      *selected_idx = 0;
       return;
     }
-    self.selected_index += 1;
+    *selected_idx += 1;
+
+    // Update local copy for rendering
+    self.selected_index = *selected_idx;
   }
 
   fn get_selected_branch(&self) -> Option<&BranchItem> {
     self.branches.get(self.selected_index)
   }
 
-  async fn checkout_selected(&mut self) -> Result<(), Error> {
-    let maybe_selected = self.get_selected_branch();
-    if maybe_selected.is_none() {
-      return Ok(());
-    }
-    let name_to_checkout = maybe_selected.unwrap().branch.name.clone();
-    self.loading = LoadingOperation::CheckingOut;
-    if let Some(tx) = &self.action_tx {
-      tx.send(Action::Render).unwrap();
-    }
+  fn checkout_selected(&self) -> impl FnOnce() {
+    let state = self.shared_state.clone();
+    let repo_clone = self.repo.clone();
 
-    self.repo.checkout_branch_from_name(&name_to_checkout).await?;
-    for existing_branch in self.branches.iter_mut() {
-      existing_branch.branch.is_head = existing_branch.branch.name == name_to_checkout;
-    }
+    move || {
+      let branches = state.get_branches();
+      let selected_idx = state.get_selected_index();
 
-    self.loading = LoadingOperation::None;
-    if let Some(tx) = &self.action_tx {
-      tx.send(Action::Render).unwrap();
+      let maybe_selected = branches.get(selected_idx);
+      if maybe_selected.is_none() {
+        return;
+      }
+
+      let name_to_checkout = maybe_selected.unwrap().branch.name.clone();
+      state.set_loading(LoadingOperation::CheckingOut);
+      state.send_render();
+
+      let future = async move {
+        let checkout_result = repo_clone.checkout_branch_from_name(&name_to_checkout).await;
+
+        if let Err(err) = checkout_result {
+          error!("{}", err);
+          state.set_error(Some(err));
+          state.set_loading(LoadingOperation::None);
+          state.send_render();
+          return;
+        }
+
+        let mut branches = state.get_branches();
+        for existing_branch in branches.iter_mut() {
+          existing_branch.branch.is_head = existing_branch.branch.name == name_to_checkout;
+        }
+
+        state.update_branches(branches);
+        state.set_loading(LoadingOperation::None);
+        state.send_render();
+      };
+
+      spawn(future);
     }
-    Ok(())
   }
 
   pub fn stage_selected_for_deletion(&mut self, stage: bool) {
-    let maybe_selected = self.branches.get_mut(self.selected_index);
+    let selected_idx = self.shared_state.get_selected_index();
+    let mut branches = self.shared_state.get_branches();
+
+    let maybe_selected = branches.get_mut(selected_idx);
     if maybe_selected.is_none() {
       return;
     }
+
     let selected = maybe_selected.unwrap();
     if selected.branch.is_head {
       return;
     }
+
     selected.stage_for_deletion(stage);
+    self.shared_state.update_branches(branches);
+
+    // Update local copy for rendering
+    self.branches = self.shared_state.get_branches();
   }
 
-  pub async fn deleted_selected(&mut self) -> Result<(), Error> {
-    let selected = self.branches.get(self.selected_index);
-    if selected.is_none() {
-      return Ok(());
-    }
-    self.loading = LoadingOperation::Deleting;
-    if let Some(tx) = &self.action_tx {
-      tx.send(Action::Render).unwrap();
-    }
+  pub fn deleted_selected(&self) -> impl FnOnce() {
+    let state = self.shared_state.clone();
+    let repo_clone = self.repo.clone();
 
-    let delete_result = self.repo.delete_branch(&selected.unwrap().branch).await;
-    if delete_result.is_ok() {
-      self.branches.remove(self.selected_index);
-      if self.selected_index >= self.branches.len() {
-        self.selected_index -= 1;
+    move || {
+      let branches = state.get_branches();
+      let selected_idx = state.get_selected_index();
+
+      let selected = branches.get(selected_idx);
+      if selected.is_none() {
+        return;
       }
-    }
 
-    self.loading = LoadingOperation::None;
-    if let Some(tx) = &self.action_tx {
-      tx.send(Action::Render).unwrap();
+      state.set_loading(LoadingOperation::Deleting);
+      state.send_render();
+
+      let selected_branch = selected.unwrap().branch.clone();
+
+      let future = async move {
+        let delete_result = repo_clone.delete_branch(&selected_branch).await;
+
+        if let Err(err) = delete_result {
+          error!("{}", err);
+          state.set_error(Some(err));
+          state.set_loading(LoadingOperation::None);
+          state.send_render();
+          return;
+        }
+
+        let mut branches = state.get_branches();
+        branches.remove(selected_idx);
+
+        let mut new_selected_idx = selected_idx;
+        if new_selected_idx >= branches.len() && !branches.is_empty() {
+          new_selected_idx -= 1;
+        }
+
+        state.update_branches(branches);
+        state.update_selected_index(new_selected_idx);
+        state.set_loading(LoadingOperation::None);
+        state.send_render();
+      };
+
+      spawn(future);
     }
-    Ok(())
   }
 
-  pub async fn delete_staged_branches(&mut self) -> Result<(), Error> {
-    self.loading = LoadingOperation::Deleting;
-    if let Some(tx) = &self.action_tx {
-      tx.send(Action::Render).unwrap();
-    }
+  pub fn delete_staged_branches(&self) -> impl FnOnce() {
+    let state = self.shared_state.clone();
+    let repo_clone = self.repo.clone();
 
-    let mut indexes_to_delete: Vec<usize> = Vec::new();
+    move || {
+      state.set_loading(LoadingOperation::Deleting);
+      state.send_render();
 
-    for branch_index in 0..self.branches.len() {
-      let branch_item = &self.branches[branch_index];
-      if !branch_item.staged_for_deletion {
-        continue;
+      let branches = state.get_branches();
+      let selected_idx = state.get_selected_index();
+
+      // Get branches staged for deletion
+      let staged_branches: Vec<(usize, GitBranch)> = branches
+        .iter()
+        .enumerate()
+        .filter(|(_, branch_item)| branch_item.staged_for_deletion)
+        .map(|(idx, branch_item)| (idx, branch_item.branch.clone()))
+        .collect();
+
+      // Early return if nothing to delete
+      if staged_branches.is_empty() {
+        state.set_loading(LoadingOperation::None);
+        state.send_render();
+        return;
       }
-      let del_result = self.repo.delete_branch(&branch_item.branch).await;
-      if del_result.is_ok() {
-        indexes_to_delete.push(branch_index);
-      } else {
-        // TODO communicate deletion error
-      }
-    }
 
-    // Sort and reverse, so we remove branches starting from the end,
-    // which means we don't need to worry about changing array positions.
-    indexes_to_delete.reverse();
-    for index in indexes_to_delete {
-      self.branches.remove(index);
-    }
-    if self.selected_index >= self.branches.len() {
-      self.selected_index = self.branches.len() - 1
-    } else if self.selected_index != 0 {
-      self.selected_index -= 1
-    }
+      let future = async move {
+        let mut indexes_to_delete: Vec<usize> = Vec::new();
 
-    self.loading = LoadingOperation::None;
-    if let Some(tx) = &self.action_tx {
-      tx.send(Action::Render).unwrap();
+        // Try to delete each branch
+        for (branch_index, branch) in staged_branches {
+          let del_result = repo_clone.delete_branch(&branch).await;
+          if del_result.is_ok() {
+            indexes_to_delete.push(branch_index);
+          } else {
+            // TODO: Track individual branch deletion errors
+            if let Err(err) = del_result {
+              error!("Failed to delete branch {}: {}", branch.name, err);
+            }
+          }
+        }
+
+        if indexes_to_delete.is_empty() {
+          state.set_loading(LoadingOperation::None);
+          state.send_render();
+          return;
+        }
+
+        // Sort and reverse, so we remove branches starting from the end,
+        // which means we don't need to worry about changing array positions.
+        indexes_to_delete.sort();
+        indexes_to_delete.reverse();
+
+        let mut branches = state.get_branches();
+        for index in indexes_to_delete {
+          branches.remove(index);
+        }
+
+        // Adjust selected index
+        let mut new_selected_idx = selected_idx;
+        if new_selected_idx >= branches.len() && !branches.is_empty() {
+          new_selected_idx = branches.len() - 1;
+        } else if new_selected_idx != 0 && new_selected_idx > 0 {
+          new_selected_idx -= 1;
+        }
+
+        state.update_branches(branches);
+        state.update_selected_index(new_selected_idx);
+        state.set_loading(LoadingOperation::None);
+        state.send_render();
+      };
+
+      spawn(future);
     }
-    Ok(())
   }
 
-  async fn create_branch(&mut self, name: String) -> Result<(), Error> {
-    let branch = GitBranch { name: name.clone(), is_head: false, upstream: None };
-    self.loading = LoadingOperation::Creating;
-    if let Some(tx) = &self.action_tx {
-      tx.send(Action::Render).unwrap();
-    }
+  fn create_branch(&self, name: String) -> impl FnOnce() {
+    let state = self.shared_state.clone();
+    let repo_clone = self.repo.clone();
 
-    self.repo.create_branch(&branch).await?;
-    self.branches.push(BranchItem::new(branch, true));
-    self.branches.sort_by(|a, b| a.branch.name.cmp(&b.branch.name));
-    self.repo.checkout_branch_from_name(&name).await?;
-    for existing_branch in self.branches.iter_mut() {
-      existing_branch.branch.is_head = existing_branch.branch.name == name;
-    }
-    self.selected_index = self.branches.iter().position(|b| b.branch.name == name).unwrap_or(0);
+    move || {
+      let branch = GitBranch { name: name.clone(), is_head: false, upstream: None };
+      state.set_loading(LoadingOperation::Creating);
+      state.send_render();
 
-    self.loading = LoadingOperation::None;
-    if let Some(tx) = &self.action_tx {
-      tx.send(Action::Render).unwrap();
-    }
-    Ok(())
-  }
+      let future = async move {
+        // Create branch
+        let create_result = repo_clone.create_branch(&branch).await;
+        if let Err(err) = create_result {
+          error!("{}", err);
+          state.set_error(Some(err));
+          state.set_loading(LoadingOperation::None);
+          state.send_render();
+          return;
+        }
 
-  fn maybe_handle_git_error(&mut self, err: Option<Error>) {
-    if err.is_some() {
-      let error = err.unwrap();
-      error!("{}", error);
-      self.error = Some(error.to_string());
+        // Checkout the new branch
+        let checkout_result = repo_clone.checkout_branch_from_name(&name).await;
+        if let Err(err) = checkout_result {
+          error!("{}", err);
+          state.set_error(Some(err));
+          state.set_loading(LoadingOperation::None);
+          state.send_render();
+          return;
+        }
+
+        // Update branches
+        let mut branches = state.get_branches();
+        branches.push(BranchItem::new(branch, true));
+        branches.sort_by(|a, b| a.branch.name.cmp(&b.branch.name));
+
+        // Update head status
+        for existing_branch in branches.iter_mut() {
+          existing_branch.branch.is_head = existing_branch.branch.name == name;
+        }
+
+        // Find position of new branch
+        let new_selected = branches.iter().position(|b| b.branch.name == name).unwrap_or(0);
+
+        state.update_branches(branches);
+        state.update_selected_index(new_selected);
+        state.set_loading(LoadingOperation::None);
+        state.send_render();
+      };
+
+      spawn(future);
     }
   }
 
   fn render_list(&mut self, f: &mut Frame<'_>, area: Rect) {
+    // Sync state before rendering
+    self.sync_state_for_render();
+
     // TODO don't clone, figure out the index to place the pseudo branch in the list
     let mut branches = self.branches.clone();
     let input_state = self.branch_input.input_state.clone();
@@ -308,6 +521,9 @@ impl BranchList {
 #[async_trait::async_trait]
 impl Component for BranchList {
   fn draw(&mut self, f: &mut Frame<'_>, area: Rect) -> color_eyre::Result<()> {
+    // Sync with shared state before rendering
+    self.sync_state_for_render();
+
     let chunks = Layout::default()
       .direction(Direction::Vertical)
       .constraints([
@@ -394,30 +610,25 @@ impl Component for BranchList {
         Ok(None)
       },
       Action::UpdateNewBranchName(key_event) => {
-        let action = self
-          .branch_input
-          .handle_key_event(
-            key_event,
-            &*self.repo,
-            self.branches.iter().map(|branch_item| &branch_item.branch).collect(),
-          )
-          .await;
+        let branches = self.shared_state.get_branches();
+        let branch_refs: Vec<&GitBranch> = branches.iter().map(|branch_item| &branch_item.branch).collect();
+
+        // Still awaiting this one because it's UI-related and needs to be synchronous
+        let action = self.branch_input.handle_key_event(key_event, &*self.repo, branch_refs).await;
+
         Ok(action)
       },
       Action::CheckoutSelectedBranch => {
         info!("BranchList: Checking out selected branch");
-        let result = self.checkout_selected().await;
-        self.maybe_handle_git_error(result.err());
+        let operation = self.checkout_selected();
+        operation();
         Ok(None)
       },
       Action::CreateBranch(name) => {
         info!("BranchList: Creating branch '{}'", name);
         self.mode = Mode::Selection;
-        let result = self.create_branch(name).await;
-        if let Err(e) = &result {
-          error!("BranchList: Failed to create branch: {}", e);
-        }
-        self.maybe_handle_git_error(result.err());
+        let operation = self.create_branch(name);
+        operation();
         Ok(Some(Action::EndInputMod))
       },
       Action::StageBranchForDeletion => {
@@ -432,19 +643,19 @@ impl Component for BranchList {
       },
       Action::DeleteBranch => {
         info!("BranchList: Deleting selected branch");
-        let result = self.deleted_selected().await;
-        self.maybe_handle_git_error(result.err());
+        let operation = self.deleted_selected();
+        operation();
         Ok(None)
       },
       Action::DeleteStagedBranches => {
         info!("BranchList: Deleting staged branches");
-        let result = self.delete_staged_branches().await;
-        self.maybe_handle_git_error(result.err());
+        let operation = self.delete_staged_branches();
+        operation();
         Ok(None)
       },
       Action::Refresh => {
-        let result = self.load_branches().await;
-        self.maybe_handle_git_error(result.err());
+        let operation = self.load_branches();
+        operation();
         Ok(None)
       },
       _ => Ok(None),

@@ -1,3 +1,5 @@
+use std::sync::Arc;
+
 use color_eyre::eyre::Result;
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use ratatui::prelude::Rect;
@@ -35,7 +37,7 @@ impl App {
   pub fn new() -> Result<Self> {
     let config = Config::new()?;
     let git_repo = GitCliRepo::from_cwd().map_err(|e| color_eyre::eyre::eyre!(e.to_string()))?;
-    let branch_list = Box::new(BranchList::new(Box::new(git_repo.clone())));
+    let branch_list = Box::new(BranchList::new(Arc::new(git_repo.clone())));
     let stash_list = Box::new(StashList::new(Box::new(git_repo)));
     let mode = Mode::Default;
     Ok(Self { config, branch_list, stash_list, should_quit: false, should_suspend: false, mode, view: View::Branches })
