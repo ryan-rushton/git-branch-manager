@@ -1,8 +1,8 @@
-use std::{sync::Arc, time::Duration};
+use std::sync::Arc;
 
 use async_trait::async_trait;
 use regex::Regex;
-use tokio::{process::Command as TokioCommand, sync::RwLock, time::sleep};
+use tokio::{process::Command as TokioCommand, sync::RwLock};
 use tracing::{error, info, instrument};
 
 use crate::{
