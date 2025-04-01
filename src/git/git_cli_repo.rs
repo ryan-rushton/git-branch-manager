@@ -1,111 +1,214 @@
-use std::process::Command;
+use std::sync::Arc;
 
+use async_trait::async_trait;
 use regex::Regex;
-use tracing::{error, info};
+use tokio::{process::Command as TokioCommand, sync::RwLock};
+use tracing::{error, info, instrument};
 
 use crate::{
   error::Error,
   git::git_repo::{GitBranch, GitRemoteBranch, GitRepo, GitStash},
 };
 
-pub struct GitCliRepo {}
+#[derive(Default, Clone)]
+pub struct GitCliRepo {
+  branch_cache: Arc<RwLock<Vec<GitBranch>>>,
+  stash_cache: Arc<RwLock<Vec<GitStash>>>,
+}
 
 impl GitCliRepo {
   pub fn from_cwd() -> Result<GitCliRepo, Error> {
-    // TODO check that the user is in a repo and throw if not
-    Ok(GitCliRepo {})
+    info!("Creating GitCliRepo from current working directory");
+
+    // Check if current directory is a git repository
+    let output = std::process::Command::new("git")
+      .args(["rev-parse", "--git-dir"])
+      .output()
+      .map_err(|e| Error::Git(e.to_string()))?;
+
+    if !output.status.success() {
+      return Err(Error::NotAGitRepository);
+    }
+
+    Ok(GitCliRepo { branch_cache: Arc::new(RwLock::new(Vec::new())), stash_cache: Arc::new(RwLock::new(Vec::new())) })
   }
-}
 
-impl GitRepo for GitCliRepo {
-  fn local_branches(&self) -> Result<Vec<GitBranch>, Error> {
-    let res = run_git_command(&["branch", "--list", "-vv"])?;
+  #[instrument(skip(self))]
+  async fn run_git_command(&self, args: Vec<String>) -> Result<String, Error> {
+    let args_log_command = args.join(" ");
+    info!(command = %args_log_command, "Running git command");
 
-    let branches: Vec<GitBranch> = res
+    // Clone the command string for error reporting
+    let args_log_command_clone = args_log_command.clone();
+
+    // Spawn the command in a separate task
+    let output = tokio::spawn(async move {
+      TokioCommand::new("git").args(&args).output().await.map_err(|err| {
+        error!(error = %err, command = %args_log_command, "Failed to run git command");
+        Error::Git(err.to_string())
+      })
+    })
+    .await
+    .map_err(|e| Error::Git(format!("Task join error: {}", e)))??;
+
+    if !output.status.success() {
+      let err = String::from_utf8_lossy(&output.stderr);
+      error!(error = %err, command = %args_log_command_clone, "Git command failed");
+      return Err(Error::Git(err.to_string()));
+    }
+
+    let content = String::from_utf8_lossy(&output.stdout).to_string();
+    Ok(content)
+  }
+
+  #[instrument(skip(self))]
+  async fn parse_branches(&self, output: String) -> Vec<GitBranch> {
+    output
       .lines()
       .map(|line| {
         let trimmed = line.trim();
-        // A regex to capture the following git list outputs
-        // * git-cli-repo 911ec26 [origin/git-cli-repo] Linting
-        //   main         8fb5d9b [origin/main] Fix build
-        //   stash-list   6442450 [origin/stash-list: gone] Formatting
-        //   test         dbcf785 Updates
         let re = Regex::new(
           r"((?<head>\*)\s+)?(?<name>\S+)\s+(?<sha>[A-Fa-f0-9]+)\s+(\[(?<upstream>[^:|^\]]+)(?<gone>[:\sgone]+)?)?",
         )
         .unwrap();
+
         let Some(captures) = re.captures(trimmed) else {
-          error!("Failed to capture git branch information for: {}", trimmed);
+          error!(line = %trimmed, "Failed to parse branch information");
           return GitBranch::new(String::from(trimmed));
         };
+
         let is_head = captures.name("head").is_some();
         let name = String::from(captures.name("name").unwrap().as_str());
         let upstream = captures.name("upstream");
+
         GitBranch {
-          name,
+          name: name.clone(),
           is_head,
           upstream: upstream.map(|upstream_name| GitRemoteBranch::new(String::from(upstream_name.as_str()))),
         }
       })
-      .collect();
-
-    Ok(branches)
-  }
-
-  fn stashes(&mut self) -> Result<Vec<GitStash>, Error> {
-    let res = run_git_command(&["branch", "--list"])?;
-
-    let stashes: Vec<GitStash> = res
-      .lines()
-      .enumerate()
-      .map(|(index, line)| GitStash::new(index, String::from(line.trim()), String::new()))
-      .collect();
-
-    Ok(stashes)
-  }
-
-  fn checkout_branch_from_name(&self, branch_name: &str) -> Result<(), Error> {
-    run_git_command(&["checkout", branch_name])?;
-    Ok(())
-  }
-
-  fn checkout_branch(&self, branch: &GitBranch) -> Result<(), Error> {
-    self.checkout_branch_from_name(&branch.name)
-  }
-
-  fn validate_branch_name(&self, name: &str) -> Result<bool, Error> {
-    let res = run_git_command(&["check-ref-format", "--branch", name]);
-    Ok(res.is_ok())
-  }
-
-  fn create_branch(&self, to_create: &GitBranch) -> Result<(), Error> {
-    run_git_command(&["checkout", "-b", &to_create.name])?;
-    Ok(())
-  }
-
-  fn delete_branch(&self, to_delete: &GitBranch) -> Result<(), Error> {
-    run_git_command(&["branch", "-D", &to_delete.name])?;
-    Ok(())
+      .collect()
   }
 }
 
-fn run_git_command(args: &[&str]) -> Result<String, Error> {
-  let args_log_command = args.join(" ");
-  info!("Running `git {}`", args_log_command);
-  let res = Command::new("git").args(args).output();
-  if res.is_err() {
-    let err = res.err().unwrap();
-    error!("Failed to run `git {}`, error: {}", args_log_command, err);
-    return Err(Error::Git(format!("{}", err)));
+#[async_trait]
+impl GitRepo for GitCliRepo {
+  #[instrument(skip(self))]
+  async fn local_branches(&self) -> Result<Vec<GitBranch>, Error> {
+    info!("Fetching local branches");
+
+    // Try to read from cache first
+    {
+      let cache = self.branch_cache.read().await;
+      if !cache.is_empty() {
+        info!(count = cache.len(), "Returning cached branches");
+        return Ok(cache.clone());
+      }
+    }
+
+    // Spawn the branch fetching task
+    let output = self.run_git_command(vec!["branch".to_string(), "--list".to_string(), "-vv".to_string()]).await?;
+    let branches = self.parse_branches(output).await;
+
+    // Update cache
+    {
+      let mut cache = self.branch_cache.write().await;
+      *cache = branches.clone();
+    }
+
+    info!(count = branches.len(), "Found local branches");
+    Ok(branches)
   }
 
-  let output = res.unwrap();
-  let err = String::from_utf8(output.stderr)?;
-  if !output.status.success() && !err.is_empty() {
-    error!("Failed to run `git {}`, error: {}", args_log_command, err);
-    return Err(Error::Git(err));
+  #[instrument(skip(self))]
+  async fn stashes(&self) -> Result<Vec<GitStash>, Error> {
+    info!("Fetching stashes");
+
+    // Try to read from cache first
+    {
+      let cache = self.stash_cache.read().await;
+      if !cache.is_empty() {
+        info!(count = cache.len(), "Returning cached stashes");
+        return Ok(cache.clone());
+      }
+    }
+
+    // Spawn the stash fetching task
+    let output = self.run_git_command(vec!["stash".to_string(), "list".to_string()]).await?;
+    let stashes: Vec<GitStash> = output
+      .lines()
+      .enumerate()
+      .map(|(index, line)| {
+        let parts: Vec<&str> = line.splitn(2, ": ").collect();
+        let stash_id = parts.first().unwrap_or(&"").to_string();
+        let message = parts.get(1).unwrap_or(&"").to_string();
+        GitStash::new(index, message, stash_id)
+      })
+      .collect();
+
+    // Update cache
+    {
+      let mut cache = self.stash_cache.write().await;
+      *cache = stashes.clone();
+    }
+
+    info!(count = stashes.len(), "Found stashes");
+    Ok(stashes)
   }
-  let content = String::from_utf8(output.stdout)?;
-  info!("Received git cli reply:\n{}", content);
-  Ok(content)
+
+  #[instrument(skip(self))]
+  async fn checkout_branch_from_name(&self, branch_name: &str) -> Result<(), Error> {
+    info!(branch = %branch_name, "Checking out branch");
+    let result = self.run_git_command(vec!["checkout".to_string(), branch_name.to_string()]).await;
+
+    // Invalidate cache on successful checkout
+    if result.is_ok() {
+      let mut cache = self.branch_cache.write().await;
+      cache.clear();
+    }
+
+    result.map(|_| ())
+  }
+
+  #[instrument(skip(self))]
+  async fn checkout_branch(&self, branch: &GitBranch) -> Result<(), Error> {
+    self.checkout_branch_from_name(&branch.name).await
+  }
+
+  #[instrument(skip(self))]
+  async fn validate_branch_name(&self, name: &str) -> Result<bool, Error> {
+    info!(branch_name = %name, "Validating branch name");
+    self
+      .run_git_command(vec!["check-ref-format".to_string(), "--branch".to_string(), name.to_string()])
+      .await
+      .map(|_| true)
+  }
+
+  #[instrument(skip(self))]
+  async fn create_branch(&self, branch: &GitBranch) -> Result<(), Error> {
+    info!(branch = %branch.name, "Creating new branch");
+    let result = self.run_git_command(vec!["checkout".to_string(), "-b".to_string(), branch.name.clone()]).await;
+
+    // Invalidate cache on successful creation
+    if result.is_ok() {
+      let mut cache = self.branch_cache.write().await;
+      cache.clear();
+    }
+
+    result.map(|_| ())
+  }
+
+  #[instrument(skip(self))]
+  async fn delete_branch(&self, branch: &GitBranch) -> Result<(), Error> {
+    info!(branch = %branch.name, "Deleting branch");
+    let result = self.run_git_command(vec!["branch".to_string(), "-D".to_string(), branch.name.clone()]).await;
+
+    // Invalidate cache on successful deletion
+    if result.is_ok() {
+      let mut cache = self.branch_cache.write().await;
+      cache.clear();
+    }
+
+    result.map(|_| ())
+  }
 }

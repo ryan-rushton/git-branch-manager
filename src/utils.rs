@@ -13,10 +13,10 @@ const VERSION_MESSAGE: &str =
 lazy_static! {
   pub static ref PROJECT_NAME: String = env!("CARGO_CRATE_NAME").to_uppercase().to_string();
   pub static ref DATA_FOLDER: Option<PathBuf> =
-    std::env::var(format!("{}_DATA", PROJECT_NAME.clone())).ok().map(PathBuf::from);
+    std::env::var(format!("{}_DATA", *PROJECT_NAME)).ok().map(PathBuf::from);
   pub static ref CONFIG_FOLDER: Option<PathBuf> =
-    std::env::var(format!("{}_CONFIG", PROJECT_NAME.clone())).ok().map(PathBuf::from);
-  pub static ref LOG_ENV: String = format!("{}_LOGLEVEL", PROJECT_NAME.clone());
+    std::env::var(format!("{}_CONFIG", *PROJECT_NAME)).ok().map(PathBuf::from);
+  pub static ref LOG_ENV: String = format!("{}_LOGLEVEL", *PROJECT_NAME);
   pub static ref LOG_FILE: String = format!("{}.log", env!("CARGO_PKG_NAME"));
 }
 
@@ -42,12 +42,7 @@ pub fn initialize_panic_handler() -> Result<()> {
     #[cfg(not(debug_assertions))]
     {
       use human_panic::{Metadata, handle_dump, print_msg};
-      let meta = Metadata {
-        version: env!("CARGO_PKG_VERSION").into(),
-        name: env!("CARGO_PKG_NAME").into(),
-        authors: env!("CARGO_PKG_AUTHORS").replace(':', ", ").into(),
-        homepage: env!("CARGO_PKG_HOMEPAGE").into(),
-      };
+      let meta = Metadata::new(env!("CARGO_PKG_VERSION"), env!("CARGO_PKG_NAME"));
 
       let file_path = handle_dump(&meta, panic_info);
       // prints human-panic message
@@ -73,34 +68,32 @@ pub fn initialize_panic_handler() -> Result<()> {
 }
 
 pub fn get_data_dir() -> PathBuf {
-  let directory = if let Some(s) = DATA_FOLDER.clone() {
-    s
+  if let Some(s) = &*DATA_FOLDER {
+    s.clone()
   } else if let Some(proj_dirs) = project_directory() {
     proj_dirs.data_local_dir().to_path_buf()
   } else {
     PathBuf::from(".").join(".data")
-  };
-  directory
+  }
 }
 
 pub fn get_config_dir() -> PathBuf {
-  let directory = if let Some(s) = CONFIG_FOLDER.clone() {
-    s
+  if let Some(s) = &*CONFIG_FOLDER {
+    s.clone()
   } else if let Some(proj_dirs) = project_directory() {
     proj_dirs.config_local_dir().to_path_buf()
   } else {
     PathBuf::from(".").join(".config")
-  };
-  directory
+  }
 }
 
 pub fn initialize_logging() -> Result<()> {
   let directory = get_data_dir();
-  std::fs::create_dir_all(directory.clone())?;
-  let log_path = directory.join(LOG_FILE.clone());
+  std::fs::create_dir_all(&directory)?;
+  let log_path = directory.join(&*LOG_FILE);
   let log_file = std::fs::File::create(log_path)?;
   let log_level = std::env::var("RUST_LOG")
-    .or_else(|_| std::env::var(LOG_ENV.clone()))
+    .or_else(|_| std::env::var(&*LOG_ENV))
     .unwrap_or_else(|_| format!("{}=info", env!("CARGO_CRATE_NAME")));
 
   let file_subscriber = tracing_subscriber::fmt::layer()
@@ -143,10 +136,9 @@ macro_rules! trace_dbg {
 pub fn version() -> String {
   let author = clap::crate_authors!();
 
-  // let current_exe_path = PathBuf::from(clap::crate_name!()).display().to_string();
   let config_dir_path = get_config_dir().display().to_string();
   let data_dir_path = get_data_dir().display().to_string();
-  let log_level = std::env::var(LOG_ENV.clone()).unwrap_or_else(|_| format!("{}=info", env!("CARGO_CRATE_NAME")));
+  let log_level = std::env::var(&*LOG_ENV).unwrap_or_else(|_| format!("{}=info", env!("CARGO_CRATE_NAME")));
 
   format!(
     "\
@@ -155,6 +147,6 @@ pub fn version() -> String {
 Authors: {author}
 Config directory: {config_dir_path}
 Data directory: {data_dir_path}
-Log leve: {log_level}"
+Log level: {log_level}"
   )
 }

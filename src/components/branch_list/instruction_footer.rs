@@ -11,17 +11,18 @@ pub struct InstructionFooter {}
 impl InstructionFooter {
   pub fn render(&self, f: &mut Frame<'_>, area: Rect, branches: &[BranchItem], selected: Option<&BranchItem>) {
     let mut commands = vec![Span::raw("esc: Quit")];
+    let staged_for_deletion = selected.is_some() && selected.unwrap().staged_for_deletion;
     commands.push(Span::raw(" | ⇧ + c: Checkout new"));
-    if selected.is_some() && selected.unwrap().staged_for_deletion {
+    if staged_for_deletion {
       commands.push(Span::raw(" | d: Delete"));
       commands.push(Span::raw(" | ⇧ + d: Unstage for deletion"));
     }
 
-    if selected.is_some() && !selected.unwrap().branch.is_head {
+    if selected.is_some() && !selected.unwrap().branch.is_head && !staged_for_deletion {
       commands.push(Span::raw(" | d: Stage for deletion"));
     }
 
-    if selected.is_some() {
+    if selected.is_some() && !staged_for_deletion {
       commands.push(Span::raw(" | c: Checkout"));
     }
 
