@@ -18,13 +18,9 @@ use crate::{
     Component,
     branch_list::{branch_input::BranchInput, branch_item::BranchItem, instruction_footer::InstructionFooter},
   },
-  git::git_repo::{GitBranch, GitRepo},
+  git::types::{GitBranch, GitRepo},
   tui::Frame,
 };
-
-mod branch_input;
-mod branch_item;
-mod instruction_footer;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 enum Mode {
@@ -271,7 +267,7 @@ impl BranchList {
     self.branches = self.shared_state.get_branches();
   }
 
-  pub fn deleted_selected(&self) -> impl FnOnce() {
+  pub fn delete_selected(&self) -> impl FnOnce() {
     let state = self.shared_state.clone();
     let repo_clone = self.repo.clone();
 
@@ -615,7 +611,7 @@ impl Component for BranchList {
       },
       Action::DeleteBranch => {
         info!("BranchList: Deleting selected branch");
-        let operation = self.deleted_selected();
+        let operation = self.delete_selected();
         operation();
         Ok(None)
       },

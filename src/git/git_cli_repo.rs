@@ -7,7 +7,7 @@ use tracing::{error, info, instrument};
 
 use crate::{
   error::Error,
-  git::git_repo::{GitBranch, GitRemoteBranch, GitRepo, GitStash},
+  git::types::{GitBranch, GitRemoteBranch, GitRepo, GitStash},
 };
 
 #[derive(Default, Clone)]
@@ -206,6 +206,48 @@ impl GitRepo for GitCliRepo {
     // Invalidate cache on successful deletion
     if result.is_ok() {
       let mut cache = self.branch_cache.write().await;
+      cache.clear();
+    }
+
+    result.map(|_| ())
+  }
+
+  #[instrument(skip(self))]
+  async fn apply_stash(&self, stash: &GitStash) -> Result<(), Error> {
+    info!(stash = %stash.stash_id, "Applying stash");
+    let result = self.run_git_command(vec!["stash".to_string(), "apply".to_string(), stash.stash_id.clone()]).await;
+
+    // Invalidate cache on successful apply
+    if result.is_ok() {
+      let mut cache = self.stash_cache.write().await;
+      cache.clear();
+    }
+
+    result.map(|_| ())
+  }
+
+  #[instrument(skip(self))]
+  async fn pop_stash(&self, stash: &GitStash) -> Result<(), Error> {
+    info!(stash = %stash.stash_id, "Popping stash");
+    let result = self.run_git_command(vec!["stash".to_string(), "pop".to_string(), stash.stash_id.clone()]).await;
+
+    // Invalidate cache on successful pop
+    if result.is_ok() {
+      let mut cache = self.stash_cache.write().await;
+      cache.clear();
+    }
+
+    result.map(|_| ())
+  }
+
+  #[instrument(skip(self))]
+  async fn drop_stash(&self, stash: &GitStash) -> Result<(), Error> {
+    info!(stash = %stash.stash_id, "Dropping stash");
+    let result = self.run_git_command(vec!["stash".to_string(), "drop".to_string(), stash.stash_id.clone()]).await;
+
+    // Invalidate cache on successful drop
+    if result.is_ok() {
+      let mut cache = self.stash_cache.write().await;
       cache.clear();
     }
 

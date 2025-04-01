@@ -25,4 +25,12 @@ pub enum Action {
   Tick,
   UnstageBranchForDeletion,
   UpdateNewBranchName(KeyEvent),
+  SelectNextStash,
+  SelectPreviousStash,
+  ApplySelectedStash,
+  PopSelectedStash,
+  DropSelectedStash,
+  StageStashForDeletion,
+  UnstageStashForDeletion,
+  DeleteStagedStashes,
 }

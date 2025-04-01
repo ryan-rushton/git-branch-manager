@@ -74,10 +74,12 @@ pub trait Component: Send + Sync {
   /// # Arguments
   ///
   /// * `f` - A frame used for rendering.
-  /// * `area` - The area in which the component should be drawn.
+  /// * `area` - The area to render the component in.
   ///
   /// # Returns
   ///
   /// * `Result<()>` - An Ok result or an error.
-  fn draw(&mut self, f: &mut Frame<'_>, area: Rect) -> Result<()>;
+  fn draw(&mut self, _f: &mut Frame<'_>, _area: Rect) -> Result<()> {
+    Ok(())
+  }
 }

@@ -46,4 +46,7 @@ pub trait GitRepo: Send + Sync {
   async fn validate_branch_name(&self, name: &str) -> Result<bool, Error>;
   async fn create_branch(&self, to_create: &GitBranch) -> Result<(), Error>;
   async fn delete_branch(&self, to_delete: &GitBranch) -> Result<(), Error>;
+  async fn apply_stash(&self, stash: &GitStash) -> Result<(), Error>;
+  async fn pop_stash(&self, stash: &GitStash) -> Result<(), Error>;
+  async fn drop_stash(&self, stash: &GitStash) -> Result<(), Error>;
 }

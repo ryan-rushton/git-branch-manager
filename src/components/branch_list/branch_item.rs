@@ -4,7 +4,7 @@ use ratatui::{
   widgets::ListItem,
 };
 
-use crate::git::git_repo::GitBranch;
+use crate::git::types::GitBranch;
 
 #[derive(Debug, Default, Clone, PartialEq, Eq)]
 pub struct BranchItem {

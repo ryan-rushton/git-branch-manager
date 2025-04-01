@@ -38,7 +38,7 @@ impl App {
     let config = Config::new()?;
     let git_repo = GitCliRepo::from_cwd().map_err(|e| color_eyre::eyre::eyre!(e.to_string()))?;
     let branch_list = Box::new(BranchList::new(Arc::new(git_repo.clone())));
-    let stash_list = Box::new(StashList::new(Box::new(git_repo)));
+    let stash_list = Box::new(StashList::new(Arc::new(git_repo)));
     let error_component = ErrorComponent::default();
     let mode = Mode::Default;
     Ok(Self {
@@ -49,7 +49,7 @@ impl App {
       should_quit: false,
       should_suspend: false,
       mode,
-      view: View::Branches,
+      view: View::Stashes,
     })
   }
 
