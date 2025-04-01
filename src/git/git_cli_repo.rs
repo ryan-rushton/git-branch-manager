@@ -171,7 +171,7 @@ impl GitRepo for GitCliRepo {
       cache.clear();
     }
 
-    result.map(|_| ())
+    Ok(())
   }
 
   #[instrument(skip(self))]
@@ -199,7 +199,7 @@ impl GitRepo for GitCliRepo {
       cache.clear();
     }
 
-    result.map(|_| ())
+    Ok(())
   }
 
   #[instrument(skip(self))]
@@ -213,7 +213,7 @@ impl GitRepo for GitCliRepo {
       cache.clear();
     }
 
-    result.map(|_| ())
+    Ok(())
   }
 
   #[instrument(skip(self))]
@@ -227,7 +227,7 @@ impl GitRepo for GitCliRepo {
       cache.clear();
     }
 
-    result.map(|_| ())
+    Ok(())
   }
 
   #[instrument(skip(self))]
@@ -241,7 +241,7 @@ impl GitRepo for GitCliRepo {
       cache.clear();
     }
 
-    result.map(|_| ())
+    Ok(())
   }
 
   #[instrument(skip(self))]
@@ -255,6 +255,6 @@ impl GitRepo for GitCliRepo {
       cache.clear();
     }
 
-    result.map(|_| ())
+    Ok(())
   }
 }
