@@ -7,9 +7,9 @@ use tokio::sync::mpsc;
 
 use crate::{
   action::Action,
-  components::{Component, branch_list::BranchList, error_component::ErrorComponent, stash_list::StashList},
+  components::{AsyncComponent, BranchList, Component, ErrorComponent, StashList},
   config::Config,
-  git::git_cli_repo::GitCliRepo,
+  git::GitCliRepo,
   mode::Mode,
   tui::{self, Tui},
 };
@@ -24,8 +24,8 @@ const FRAME_RATE: f64 = 30.0;
 
 pub struct App {
   pub config: Config,
-  pub branch_list: Box<dyn Component>,
-  pub stash_list: Box<dyn Component>,
+  pub branch_list: Box<dyn AsyncComponent>,
+  pub stash_list: Box<dyn AsyncComponent>,
   pub error_component: ErrorComponent,
   pub should_quit: bool,
   pub should_suspend: bool,
@@ -49,7 +49,7 @@ impl App {
       should_quit: false,
       should_suspend: false,
       mode,
-      view: View::Stashes,
+      view: View::Branches,
     })
   }
 
@@ -96,7 +96,7 @@ impl App {
         let maybe_action = match self.mode {
           Mode::Error => self.error_component.handle_events(Some(e.clone())).await?,
           _ => {
-            let component: &mut Box<dyn Component> = match self.view {
+            let component: &mut Box<dyn AsyncComponent> = match self.view {
               View::Branches => &mut self.branch_list,
               View::Stashes => &mut self.stash_list,
             };
@@ -112,7 +112,7 @@ impl App {
         if action != Action::Tick && action != Action::Render {
           log::debug!("{action:?}");
         }
-        let component: &mut Box<dyn Component> = match self.view {
+        let component: &mut Box<dyn AsyncComponent> = match self.view {
           View::Branches => &mut self.branch_list,
           View::Stashes => &mut self.stash_list,
         };

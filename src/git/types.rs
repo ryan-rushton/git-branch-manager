@@ -29,11 +29,12 @@ pub struct GitStash {
   pub index: usize,
   pub message: String,
   pub stash_id: String,
+  pub branch_name: String,
 }
 
 impl GitStash {
-  pub fn new(index: usize, message: String, stash_id: String) -> Self {
-    GitStash { index, message, stash_id }
+  pub fn new(index: usize, message: String, stash_id: String, branch_name: String) -> Self {
+    GitStash { index, message, stash_id, branch_name }
   }
 }
 

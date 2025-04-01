@@ -1,5 +1,5 @@
 mod instruction_footer;
-mod list;
+pub mod list;
 mod stash_item;
 
 pub use instruction_footer::InstructionFooter;

@@ -12,12 +12,10 @@ use ratatui::{
 use tokio::{sync::mpsc::UnboundedSender, task::spawn};
 use tracing::{error, info, warn};
 
+use super::{BranchInput, BranchItem, InstructionFooter};
 use crate::{
   action::Action,
-  components::{
-    Component,
-    branch_list::{branch_input::BranchInput, branch_item::BranchItem, instruction_footer::InstructionFooter},
-  },
+  components::{AsyncComponent, Component},
   git::types::{GitBranch, GitRepo},
   tui::Frame,
 };
@@ -485,39 +483,6 @@ impl BranchList {
 
     f.render_stateful_widget(list, area, &mut self.list_state);
   }
-}
-
-#[async_trait::async_trait]
-impl Component for BranchList {
-  fn register_action_handler(&mut self, tx: UnboundedSender<Action>) -> color_eyre::Result<()> {
-    *self.shared_state.action_tx.lock().unwrap() = Some(tx);
-    Ok(())
-  }
-
-  fn draw(&mut self, frame: &mut Frame<'_>, area: Rect) -> color_eyre::Result<()> {
-    // Sync with shared state before rendering
-    self.sync_state_for_render();
-
-    let layout_base = Layout::default().direction(Direction::Vertical);
-
-    let chunks = layout_base
-      .constraints([
-        Constraint::Min(1),
-        Constraint::Length(if self.mode == Mode::Input { 3 } else { 0 }),
-        Constraint::Length(3),
-      ])
-      .split(area);
-
-    self.render_list(frame, chunks[0]);
-
-    if self.mode == Mode::Input {
-      self.branch_input.render(frame, chunks[1]);
-    }
-
-    self.instruction_footer.render(frame, chunks[2], &self.branches, self.get_selected_branch());
-
-    Ok(())
-  }
 
   async fn handle_key_events(&mut self, key: KeyEvent) -> color_eyre::Result<Option<Action>> {
     if self.mode == Mode::Input {
@@ -555,6 +520,49 @@ impl Component for BranchList {
     };
 
     Ok(action)
+  }
+}
+
+impl Component for BranchList {
+  fn register_action_handler(&mut self, tx: UnboundedSender<Action>) -> color_eyre::Result<()> {
+    *self.shared_state.action_tx.lock().unwrap() = Some(tx);
+    Ok(())
+  }
+
+  fn draw(&mut self, frame: &mut Frame<'_>, area: Rect) -> color_eyre::Result<()> {
+    // Sync with shared state before rendering
+    self.sync_state_for_render();
+
+    let layout_base = Layout::default().direction(Direction::Vertical);
+
+    let chunks = layout_base
+      .constraints([
+        Constraint::Min(1),
+        Constraint::Length(if self.mode == Mode::Input { 3 } else { 0 }),
+        Constraint::Length(3),
+      ])
+      .split(area);
+
+    self.render_list(frame, chunks[0]);
+
+    if self.mode == Mode::Input {
+      self.branch_input.render(frame, chunks[1]);
+    }
+
+    let selected_branch = self.get_selected_branch();
+    self.instruction_footer.render(frame, chunks[2], selected_branch);
+
+    Ok(())
+  }
+}
+
+#[async_trait::async_trait]
+impl AsyncComponent for BranchList {
+  async fn handle_events(&mut self, event: Option<crate::tui::Event>) -> color_eyre::Result<Option<Action>> {
+    match event {
+      Some(crate::tui::Event::Key(key)) => self.handle_key_events(key).await,
+      _ => Ok(None),
+    }
   }
 
   async fn update(&mut self, action: Action) -> color_eyre::Result<Option<Action>> {

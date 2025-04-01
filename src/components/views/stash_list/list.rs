@@ -13,12 +13,10 @@ use ratatui::{
 use tokio::{sync::mpsc::UnboundedSender, task::spawn};
 use tracing::{error, info, warn};
 
+use super::{InstructionFooter, StashItem};
 use crate::{
   action::Action,
-  components::{
-    Component,
-    stash_list::{instruction_footer::InstructionFooter, stash_item::StashItem},
-  },
+  components::{AsyncComponent, Component},
   git::types::{GitRepo, GitStash},
 };
 
@@ -200,7 +198,7 @@ impl StashList {
         return;
       }
 
-      let stash_to_apply = maybe_selected.unwrap().git_stash.clone();
+      let stash_to_apply = maybe_selected.unwrap().stash.clone();
       state.set_loading(LoadingOperation::Applying(SystemTime::now()));
       state.send_render();
 
@@ -243,7 +241,7 @@ impl StashList {
         return;
       }
 
-      let stash_to_pop = maybe_selected.unwrap().git_stash.clone();
+      let stash_to_pop = maybe_selected.unwrap().stash.clone();
       state.set_loading(LoadingOperation::Popping(SystemTime::now()));
       state.send_render();
 
@@ -286,7 +284,7 @@ impl StashList {
         return;
       }
 
-      let stash_to_drop = maybe_selected.unwrap().git_stash.clone();
+      let stash_to_drop = maybe_selected.unwrap().stash.clone();
       state.set_loading(LoadingOperation::Dropping(SystemTime::now()));
       state.send_render();
 
@@ -345,7 +343,7 @@ impl StashList {
         .iter()
         .enumerate()
         .filter(|(_, stash_item)| stash_item.staged_for_deletion)
-        .map(|(idx, stash_item)| (idx, stash_item.git_stash.clone()))
+        .map(|(idx, stash_item)| (idx, stash_item.stash.clone()))
         .collect();
 
       // Sort by index in descending order so we delete from highest to lowest
@@ -428,7 +426,6 @@ impl StashList {
   }
 }
 
-#[async_trait::async_trait]
 impl Component for StashList {
   fn register_action_handler(&mut self, tx: UnboundedSender<Action>) -> color_eyre::Result<()> {
     *self.shared_state.action_tx.lock().unwrap() = Some(tx);
@@ -440,54 +437,24 @@ impl Component for StashList {
     self.sync_state_for_render();
 
     let layout_base = Layout::default().direction(Direction::Vertical);
-
     let chunks = layout_base.constraints([Constraint::Min(1), Constraint::Length(3)]).split(area);
 
+    let stashes = self.stashes.clone();
+    let selected_stash = stashes.get(self.selected_index);
     self.render_list(frame, chunks[0]);
-
-    // Render instruction footer
-    let selected_stash = self.get_selected_stash();
-    self.instruction_footer.render(frame, chunks[1], &self.stashes, selected_stash);
+    self.instruction_footer.render(frame, chunks[1], selected_stash);
 
     Ok(())
   }
+}
 
-  async fn handle_key_events(&mut self, key: KeyEvent) -> color_eyre::Result<Option<Action>> {
-    let action = match key {
-      KeyEvent { code: KeyCode::Down, modifiers: KeyModifiers::NONE, kind: _, state: _ } => {
-        Some(Action::SelectNextStash)
-      },
-      KeyEvent { code: KeyCode::Up, modifiers: KeyModifiers::NONE, kind: _, state: _ } => {
-        Some(Action::SelectPreviousStash)
-      },
-      KeyEvent { code: KeyCode::Char('a' | 'A'), modifiers: KeyModifiers::NONE, kind: _, state: _ } => {
-        Some(Action::ApplySelectedStash)
-      },
-      KeyEvent { code: KeyCode::Char('p' | 'P'), modifiers: KeyModifiers::NONE, kind: _, state: _ } => {
-        Some(Action::PopSelectedStash)
-      },
-      KeyEvent { code: KeyCode::Char('d' | 'D'), modifiers: KeyModifiers::SHIFT, kind: _, state: _ } => {
-        Some(Action::UnstageStashForDeletion)
-      },
-      KeyEvent { code: KeyCode::Char('d' | 'D'), modifiers: KeyModifiers::CONTROL, kind: _, state: _ } => {
-        Some(Action::DeleteStagedStashes)
-      },
-      KeyEvent { code: KeyCode::Char('d' | 'D'), modifiers: KeyModifiers::NONE, kind: _, state: _ } => {
-        if self.get_selected_stash().is_none() {
-          None
-        } else {
-          let selected = self.get_selected_stash().unwrap();
-          if selected.staged_for_deletion {
-            Some(Action::DropSelectedStash)
-          } else {
-            Some(Action::StageStashForDeletion)
-          }
-        }
-      },
-      _ => None,
-    };
-
-    Ok(action)
+#[async_trait::async_trait]
+impl AsyncComponent for StashList {
+  async fn handle_events(&mut self, event: Option<crate::tui::Event>) -> color_eyre::Result<Option<Action>> {
+    match event {
+      Some(crate::tui::Event::Key(key)) => self.handle_key_events(key).await,
+      _ => Ok(None),
+    }
   }
 
   async fn update(&mut self, action: Action) -> color_eyre::Result<Option<Action>> {
@@ -541,6 +508,46 @@ impl Component for StashList {
       },
       _ => Ok(None),
     }
+  }
+}
+
+impl StashList {
+  async fn handle_key_events(&mut self, key: KeyEvent) -> color_eyre::Result<Option<Action>> {
+    let action = match key {
+      KeyEvent { code: KeyCode::Down, modifiers: KeyModifiers::NONE, kind: _, state: _ } => {
+        Some(Action::SelectNextStash)
+      },
+      KeyEvent { code: KeyCode::Up, modifiers: KeyModifiers::NONE, kind: _, state: _ } => {
+        Some(Action::SelectPreviousStash)
+      },
+      KeyEvent { code: KeyCode::Char('a' | 'A'), modifiers: KeyModifiers::NONE, kind: _, state: _ } => {
+        Some(Action::ApplySelectedStash)
+      },
+      KeyEvent { code: KeyCode::Char('p' | 'P'), modifiers: KeyModifiers::NONE, kind: _, state: _ } => {
+        Some(Action::PopSelectedStash)
+      },
+      KeyEvent { code: KeyCode::Char('d' | 'D'), modifiers: KeyModifiers::SHIFT, kind: _, state: _ } => {
+        Some(Action::UnstageStashForDeletion)
+      },
+      KeyEvent { code: KeyCode::Char('d' | 'D'), modifiers: KeyModifiers::CONTROL, kind: _, state: _ } => {
+        Some(Action::DeleteStagedStashes)
+      },
+      KeyEvent { code: KeyCode::Char('d' | 'D'), modifiers: KeyModifiers::NONE, kind: _, state: _ } => {
+        if self.get_selected_stash().is_none() {
+          None
+        } else {
+          let selected = self.get_selected_stash().unwrap();
+          if selected.staged_for_deletion {
+            Some(Action::DropSelectedStash)
+          } else {
+            Some(Action::StageStashForDeletion)
+          }
+        }
+      },
+      _ => None,
+    };
+
+    Ok(action)
   }
 }
 

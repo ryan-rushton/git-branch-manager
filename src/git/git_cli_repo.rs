@@ -134,7 +134,9 @@ impl GitRepo for GitCliRepo {
     }
 
     // Spawn the stash fetching task
-    let output = self.run_git_command(vec!["stash".to_string(), "list".to_string()]).await?;
+    let output = self
+      .run_git_command(vec!["stash".to_string(), "list".to_string(), "--format=%gd: %gs (%gd)".to_string()])
+      .await?;
     let stashes: Vec<GitStash> = output
       .lines()
       .enumerate()
@@ -142,7 +144,9 @@ impl GitRepo for GitCliRepo {
         let parts: Vec<&str> = line.splitn(2, ": ").collect();
         let stash_id = parts.first().unwrap_or(&"").to_string();
         let message = parts.get(1).unwrap_or(&"").to_string();
-        GitStash::new(index, message, stash_id)
+        let branch_name = message.split(" (on ").nth(1).unwrap_or("").trim_end_matches(")").to_string();
+        let message = message.split(" (on ").next().unwrap_or("").to_string();
+        GitStash::new(index, message, stash_id, branch_name)
       })
       .collect();
 
