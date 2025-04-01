@@ -79,6 +79,11 @@ impl SharedState {
   fn get_selected_index(&self) -> usize {
     *self.selected_index.lock().unwrap()
   }
+
+  fn set_selected_index(&self, index: usize) {
+    let mut selected_index_guard = self.selected_index.lock().unwrap();
+    *selected_index_guard = index;
+  }
 }
 
 pub struct StashList {
@@ -304,6 +309,12 @@ impl StashList {
         if let Ok(stashes) = stashes_result {
           let stash_items = stashes.iter().map(|stash| StashItem::new(stash.clone())).collect();
           state.update_stashes(stash_items);
+          // Adjust selected index if it's beyond bounds
+          let mut new_selected_idx = selected_idx;
+          if new_selected_idx >= stashes.len() && !stashes.is_empty() {
+            new_selected_idx -= 1;
+          }
+          state.set_selected_index(new_selected_idx);
         }
 
         state.set_loading(LoadingOperation::None);
@@ -363,12 +374,14 @@ impl StashList {
 
       let future = async move {
         let mut deleted_count = 0;
+        let mut indexes_to_delete: Vec<usize> = Vec::new();
 
         // Try to delete each stash in reverse order
-        for (i, (_, stash)) in staged_stashes.into_iter().enumerate() {
+        for (i, (stash_index, stash)) in staged_stashes.into_iter().enumerate() {
           let del_result = repo_clone.drop_stash(&stash).await;
           if del_result.is_ok() {
             deleted_count += 1;
+            indexes_to_delete.push(stash_index);
           } else if let Err(err) = del_result {
             error!("Failed to delete stash {}: {}", stash.stash_id, err);
           }
@@ -383,10 +396,18 @@ impl StashList {
           return;
         }
 
+        // Sort and reverse, so we remove stashes starting from the end,
+        // which means we don't need to worry about changing array positions.
+        indexes_to_delete.sort();
+        indexes_to_delete.reverse();
+
         // Refresh stashes after all deletions are complete
         if let Ok(stashes) = repo_clone.stashes().await {
           let stash_items = stashes.iter().map(|stash| StashItem::new(stash.clone())).collect();
           state.update_stashes(stash_items);
+          // Adjust selected index to the smallest deleted index
+          let new_selected_idx = indexes_to_delete.last().unwrap_or(&0);
+          state.set_selected_index(*new_selected_idx);
         }
 
         state.set_loading(LoadingOperation::None);

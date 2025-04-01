@@ -13,12 +13,12 @@ impl InstructionFooter {
   pub fn render(&self, frame: &mut Frame<'_>, area: Rect, selected: Option<&BranchItem>) {
     let instructions = if let Some(selected) = selected {
       if selected.staged_for_deletion {
-        "D: Delete | Shift+D: Unstage | Ctrl+D: Delete All Staged"
+        "D: Delete | Shift+D: Unstage | Ctrl+D: Delete All Staged | Tab: Switch to Stashes"
       } else {
-        "C: Checkout | Shift+C: Create New | D: Stage for Deletion"
+        "C: Checkout | Shift+C: Create New | D: Stage for Deletion | Tab: Switch to Stashes"
       }
     } else {
-      "C: Checkout | Shift+C: Create New | D: Stage for Deletion"
+      "C: Checkout | Shift+C: Create New | D: Stage for Deletion | Tab: Switch to Stashes"
     };
 
     let paragraph = Paragraph::new(instructions)

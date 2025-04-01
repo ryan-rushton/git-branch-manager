@@ -77,6 +77,9 @@ impl App {
               KeyEvent { code: KeyCode::Char('c' | 'C'), modifiers: KeyModifiers::CONTROL, state: _, kind: _ } => {
                 action_tx.send(Action::Quit)?
               },
+              KeyEvent { code: KeyCode::Tab, modifiers: KeyModifiers::NONE, state: _, kind: _ } => {
+                action_tx.send(Action::ToggleView)?
+              },
               _ => {
                 match self.mode {
                   Mode::Error => {},
@@ -123,6 +126,15 @@ impl App {
           Action::Quit => self.should_quit = true,
           Action::Suspend => self.should_suspend = true,
           Action::Resume => self.should_suspend = false,
+          Action::ToggleView => {
+            self.view = match self.view {
+              View::Branches => View::Stashes,
+              View::Stashes => View::Branches,
+            };
+            tui.clear()?;
+            action_tx.send(Action::Refresh)?;
+            action_tx.send(Action::Render)?;
+          },
           Action::Error(message) => {
             self.mode = Mode::Error;
             self.error_component.set_message(message.clone());

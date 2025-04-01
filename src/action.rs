@@ -23,6 +23,7 @@ pub enum Action {
   StartInputMode,
   Suspend,
   Tick,
+  ToggleView,
   UnstageBranchForDeletion,
   UpdateNewBranchName(KeyEvent),
   SelectNextStash,
