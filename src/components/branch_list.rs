@@ -39,6 +39,7 @@ enum LoadingOperation {
   CheckingOut(SystemTime),
   Creating(SystemTime),
   Deleting(SystemTime),
+  DeletingWithProgress(SystemTime, usize, usize), // (time, current, total)
 }
 
 // Shared state that can be accessed from async blocks
@@ -322,9 +323,6 @@ impl BranchList {
     let repo_clone = self.repo.clone();
 
     move || {
-      state.set_loading(LoadingOperation::Deleting(SystemTime::now()));
-      state.send_render();
-
       let branches = state.get_branches();
       let selected_idx = state.get_selected_index();
 
@@ -343,11 +341,16 @@ impl BranchList {
         return;
       }
 
+      let total_branches = staged_branches.len();
+      let start_time = SystemTime::now();
+      state.set_loading(LoadingOperation::DeletingWithProgress(start_time, 0, total_branches));
+      state.send_render();
+
       let future = async move {
         let mut indexes_to_delete: Vec<usize> = Vec::new();
 
         // Try to delete each branch
-        for (branch_index, branch) in staged_branches {
+        for (i, (branch_index, branch)) in staged_branches.into_iter().enumerate() {
           let del_result = repo_clone.delete_branch(&branch).await;
           if del_result.is_ok() {
             indexes_to_delete.push(branch_index);
@@ -357,6 +360,9 @@ impl BranchList {
               error!("Failed to delete branch {}: {}", branch.name, err);
             }
           }
+          // Update progress
+          state.set_loading(LoadingOperation::DeletingWithProgress(start_time, i + 1, total_branches));
+          state.send_render();
         }
 
         if indexes_to_delete.is_empty() {
@@ -375,16 +381,11 @@ impl BranchList {
           branches.remove(index);
         }
 
-        // Adjust selected index
-        let mut new_selected_idx = selected_idx;
-        if new_selected_idx >= branches.len() && !branches.is_empty() {
-          new_selected_idx = branches.len() - 1;
-        } else if new_selected_idx != 0 && new_selected_idx > 0 {
-          new_selected_idx -= 1;
-        }
+        // Adjust selected index to the smallest deleted index
+        let new_selected_idx = indexes_to_delete.last().unwrap_or_else(|| &0);
 
         state.update_branches(branches);
-        state.update_selected_index(new_selected_idx);
+        state.update_selected_index(*new_selected_idx);
         state.set_loading(LoadingOperation::None);
         state.send_render();
       };
@@ -473,6 +474,9 @@ impl BranchList {
       LoadingOperation::CheckingOut(time) => title = format!("Checking Out Branch...({})", format_time_elapsed(time)),
       LoadingOperation::Creating(time) => title = format!("Creating Branch...({})", format_time_elapsed(time)),
       LoadingOperation::Deleting(time) => title = format!("Deleting Branch...({})", format_time_elapsed(time)),
+      LoadingOperation::DeletingWithProgress(time, current, total) => {
+        title = format!("Deleting Branch {}/{}...({})", current, total, format_time_elapsed(time))
+      },
       LoadingOperation::None => {},
     }
 

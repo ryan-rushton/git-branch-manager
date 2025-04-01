@@ -1,8 +1,8 @@
-use std::{sync::Arc, time::Duration};
+use std::sync::Arc;
 
 use async_trait::async_trait;
 use regex::Regex;
-use tokio::{process::Command as TokioCommand, sync::RwLock, time::sleep};
+use tokio::{process::Command as TokioCommand, sync::RwLock};
 use tracing::{error, info, instrument};
 
 use crate::{
@@ -40,8 +40,6 @@ impl GitCliRepo {
 
     // Clone the command string for error reporting
     let args_log_command_clone = args_log_command.clone();
-
-    sleep(Duration::from_millis(2000)).await;
 
     // Spawn the command in a separate task
     let output = tokio::spawn(async move {
