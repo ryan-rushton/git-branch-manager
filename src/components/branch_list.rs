@@ -324,7 +324,6 @@ impl BranchList {
 
     move || {
       let branches = state.get_branches();
-      let selected_idx = state.get_selected_index();
 
       // Get branches staged for deletion
       let staged_branches: Vec<(usize, GitBranch)> = branches
@@ -377,12 +376,12 @@ impl BranchList {
         indexes_to_delete.reverse();
 
         let mut branches = state.get_branches();
-        for index in indexes_to_delete {
+        for index in indexes_to_delete.clone() {
           branches.remove(index);
         }
 
         // Adjust selected index to the smallest deleted index
-        let new_selected_idx = indexes_to_delete.last().unwrap_or_else(|| &0);
+        let new_selected_idx = indexes_to_delete.last().unwrap_or(&0);
 
         state.update_branches(branches);
         state.update_selected_index(*new_selected_idx);
