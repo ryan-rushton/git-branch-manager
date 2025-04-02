@@ -10,7 +10,7 @@ use tui_textarea::{CursorMove, Input, TextArea};
 
 use crate::{
   action::Action,
-  git::git_repo::{GitBranch, GitRepo},
+  git::types::{GitBranch, GitRepo},
   tui::Frame,
 };
 
@@ -20,6 +20,7 @@ pub struct InputState {
   pub is_valid: Option<bool>,
 }
 
+#[derive(Debug, Default)]
 pub struct BranchInput {
   pub text_input: TextArea<'static>,
   pub input_state: InputState,
@@ -27,7 +28,7 @@ pub struct BranchInput {
 
 impl BranchInput {
   pub fn new() -> Self {
-    BranchInput { text_input: TextArea::default(), input_state: InputState::default() }
+    Self::default()
   }
 
   pub fn init_style(&mut self) {

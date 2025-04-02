@@ -29,11 +29,12 @@ pub struct GitStash {
   pub index: usize,
   pub message: String,
   pub stash_id: String,
+  pub branch_name: String,
 }
 
 impl GitStash {
-  pub fn new(index: usize, message: String, stash_id: String) -> Self {
-    GitStash { index, message, stash_id }
+  pub fn new(index: usize, message: String, stash_id: String, branch_name: String) -> Self {
+    GitStash { index, message, stash_id, branch_name }
   }
 }
 
@@ -46,4 +47,7 @@ pub trait GitRepo: Send + Sync {
   async fn validate_branch_name(&self, name: &str) -> Result<bool, Error>;
   async fn create_branch(&self, to_create: &GitBranch) -> Result<(), Error>;
   async fn delete_branch(&self, to_delete: &GitBranch) -> Result<(), Error>;
+  async fn apply_stash(&self, stash: &GitStash) -> Result<(), Error>;
+  async fn pop_stash(&self, stash: &GitStash) -> Result<(), Error>;
+  async fn drop_stash(&self, stash: &GitStash) -> Result<(), Error>;
 }
