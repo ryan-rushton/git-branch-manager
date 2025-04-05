@@ -10,21 +10,29 @@ use crate::{components::views::stash_list::stash_item::StashItem, tui::Frame};
 pub struct InstructionFooter {}
 
 impl InstructionFooter {
-  pub fn render(&mut self, frame: &mut Frame<'_>, area: Rect, selected: Option<&StashItem>, has_staged_stashes: bool) {
-    let mut instructions = vec!["esc: Exit", "s: New Stash, a: Apply", "p: Pop"];
+  pub fn render(
+    &mut self,
+    frame: &mut Frame<'_>,
+    area: Rect,
+    selected: Option<&StashItem>,
+    has_staged_for_deletion: bool,
+  ) {
+    let mut instructions = vec!["esc: Exit", "s: New Stash"];
 
+    // Assume something is selected means we have stashes to work with
     if let Some(selected) = selected {
+      instructions.push("a: Apply");
+      instructions.push("p: Pop");
+
       if selected.staged_for_deletion {
         instructions.push("d: Delete");
         instructions.push("shift+d: Unstage");
       } else {
         instructions.push("d: Stage for Deletion");
       }
-    } else {
-      instructions.push("d: Stage for Deletion");
     }
 
-    if has_staged_stashes {
+    if has_staged_for_deletion {
       instructions.push("ctrl+d: Delete All Staged");
     }
 

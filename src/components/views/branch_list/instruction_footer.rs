@@ -10,23 +10,27 @@ use crate::{components::views::branch_list::branch_item::BranchItem, tui::Frame}
 pub struct InstructionFooter {}
 
 impl InstructionFooter {
-  pub fn render(&self, frame: &mut Frame<'_>, area: Rect, selected: Option<&BranchItem>) {
-    let mut instructions = vec!["esc: Exit"];
+  pub fn render(
+    &self,
+    frame: &mut Frame<'_>,
+    area: Rect,
+    selected: Option<&BranchItem>,
+    has_staged_for_deletion: bool,
+  ) {
+    let mut instructions = vec!["esc: Exit", "shift+c: Create New"];
     if let Some(selected) = selected {
       if selected.staged_for_deletion {
         instructions.push("d: Delete");
         instructions.push("shift+d: Unstage");
-        instructions.push("ctrl+d: Delete All Staged");
       } else {
         instructions.push("c: Checkout");
-        instructions.push("shift+c: Create New");
         instructions.push("d: Stage for Deletion");
       }
-    } else {
-      instructions.push("c: Checkout");
-      instructions.push("shift+c: Create New");
-      instructions.push("d: Stage for Deletion");
-    };
+    }
+
+    if has_staged_for_deletion {
+      instructions.push("ctrl+d: Delete All Staged");
+    }
 
     instructions.push("tab: Switch to Stashes");
 

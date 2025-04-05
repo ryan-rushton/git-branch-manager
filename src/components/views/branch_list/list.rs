@@ -550,7 +550,8 @@ impl Component for BranchList {
     }
 
     let selected_branch = self.get_selected_branch();
-    self.instruction_footer.render(frame, chunks[2], selected_branch);
+    let has_staged_for_deletion = self.branches.iter().any(|branch| branch.staged_for_deletion);
+    self.instruction_footer.render(frame, chunks[2], selected_branch, has_staged_for_deletion);
 
     Ok(())
   }
