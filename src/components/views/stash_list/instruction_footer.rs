@@ -10,18 +10,27 @@ use crate::{components::views::stash_list::stash_item::StashItem, tui::Frame};
 pub struct InstructionFooter {}
 
 impl InstructionFooter {
-  pub fn render(&mut self, frame: &mut Frame<'_>, area: Rect, selected: Option<&StashItem>) {
-    let instructions = if let Some(selected) = selected {
+  pub fn render(&mut self, frame: &mut Frame<'_>, area: Rect, selected: Option<&StashItem>, has_staged_stashes: bool) {
+    let mut instructions = vec!["esc: Exit", "s: New Stash, a: Apply", "p: Pop"];
+
+    if let Some(selected) = selected {
       if selected.staged_for_deletion {
-        "D: Delete | Shift+D: Unstage | Ctrl+D: Delete All Staged | Tab: Switch to Branches"
+        instructions.push("d: Delete");
+        instructions.push("shift+d: Unstage");
       } else {
-        "A: Apply | P: Pop | D: Stage for Deletion | Tab: Switch to Branches"
+        instructions.push("d: Stage for Deletion");
       }
     } else {
-      "A: Apply | P: Pop | D: Stage for Deletion | Tab: Switch to Branches"
-    };
+      instructions.push("d: Stage for Deletion");
+    }
 
-    let paragraph = Paragraph::new(instructions)
+    if has_staged_stashes {
+      instructions.push("ctrl+d: Delete All Staged");
+    }
+
+    instructions.push("tab: Switch to Branches"); // Always add Tab
+
+    let paragraph = Paragraph::new(instructions.join(" | "))
       .block(Block::default().borders(Borders::ALL))
       .style(Style::default().fg(Color::White));
 

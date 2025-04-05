@@ -257,4 +257,19 @@ impl GitRepo for GitCliRepo {
 
     Ok(())
   }
+
+  #[instrument(skip(self))]
+  async fn stash_with_message(&self, message: &str) -> Result<(), Error> {
+    info!(message = %message, "Stashing changes with message");
+    let result =
+      self.run_git_command(vec!["stash".to_string(), "push".to_string(), "-m".to_string(), message.to_string()]).await;
+
+    // Invalidate cache on successful stash
+    if result.is_ok() {
+      let mut cache = self.stash_cache.write().await;
+      cache.clear();
+    }
+
+    Ok(())
+  }
 }

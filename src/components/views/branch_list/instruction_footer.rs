@@ -11,17 +11,26 @@ pub struct InstructionFooter {}
 
 impl InstructionFooter {
   pub fn render(&self, frame: &mut Frame<'_>, area: Rect, selected: Option<&BranchItem>) {
-    let instructions = if let Some(selected) = selected {
+    let mut instructions = vec!["esc: Exit"];
+    if let Some(selected) = selected {
       if selected.staged_for_deletion {
-        "D: Delete | Shift+D: Unstage | Ctrl+D: Delete All Staged | Tab: Switch to Stashes"
+        instructions.push("d: Delete");
+        instructions.push("shift+d: Unstage");
+        instructions.push("ctrl+d: Delete All Staged");
       } else {
-        "C: Checkout | Shift+C: Create New | D: Stage for Deletion | Tab: Switch to Stashes"
+        instructions.push("c: Checkout");
+        instructions.push("shift+c: Create New");
+        instructions.push("d: Stage for Deletion");
       }
     } else {
-      "C: Checkout | Shift+C: Create New | D: Stage for Deletion | Tab: Switch to Stashes"
+      instructions.push("c: Checkout");
+      instructions.push("shift+c: Create New");
+      instructions.push("d: Stage for Deletion");
     };
 
-    let paragraph = Paragraph::new(instructions)
+    instructions.push("tab: Switch to Stashes");
+
+    let paragraph = Paragraph::new(instructions.join(" | "))
       .block(Block::default().borders(Borders::ALL))
       .style(Style::default().fg(Color::White));
 
