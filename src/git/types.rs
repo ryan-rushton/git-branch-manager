@@ -50,4 +50,5 @@ pub trait GitRepo: Send + Sync {
   async fn apply_stash(&self, stash: &GitStash) -> Result<(), Error>;
   async fn pop_stash(&self, stash: &GitStash) -> Result<(), Error>;
   async fn drop_stash(&self, stash: &GitStash) -> Result<(), Error>;
+  async fn stash_with_message(&self, message: &str) -> Result<(), Error>;
 }

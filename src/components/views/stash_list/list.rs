@@ -13,12 +13,19 @@ use ratatui::{
 use tokio::{sync::mpsc::UnboundedSender, task::spawn};
 use tracing::{error, info, warn};
 
-use super::{InstructionFooter, StashItem};
+use super::{InstructionFooter, StashInput, StashItem};
 use crate::{
   action::Action,
   components::{AsyncComponent, Component},
   git::types::{GitRepo, GitStash},
 };
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+
+enum Mode {
+  Selection,
+  Input,
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum LoadingOperation {
@@ -28,6 +35,7 @@ enum LoadingOperation {
   Popping(SystemTime),
   Dropping(SystemTime),
   DroppingWithProgress(SystemTime, usize, usize), // (time, current, total)
+  Stashing(SystemTime),
 }
 
 // Shared state that can be accessed from async blocks
@@ -91,10 +99,12 @@ pub struct StashList {
   shared_state: SharedState,
   // Local cached copies for rendering
   loading: LoadingOperation,
+  mode: Mode,
   stashes: Vec<StashItem>,
   list_state: ListState,
   selected_index: usize,
   instruction_footer: InstructionFooter,
+  stash_input: StashInput, // Add stash input component
 }
 
 impl StashList {
@@ -105,10 +115,12 @@ impl StashList {
       repo,
       shared_state,
       loading: LoadingOperation::None,
+      mode: Mode::Selection,
       stashes: Vec::new(),
       list_state: ListState::default(),
       selected_index: 0,
       instruction_footer: InstructionFooter::default(),
+      stash_input: StashInput::new(), // Initialize stash input
     }
   }
 
@@ -385,7 +397,6 @@ impl StashList {
           } else if let Err(err) = del_result {
             error!("Failed to delete stash {}: {}", stash.stash_id, err);
           }
-          // Update progress
           state.set_loading(LoadingOperation::DroppingWithProgress(start_time, i + 1, total_stashes));
           state.send_render();
         }
@@ -418,6 +429,40 @@ impl StashList {
     }
   }
 
+  fn create_stash(&self, message: String) -> impl FnOnce() {
+    let state = self.shared_state.clone();
+    let repo_clone = self.repo.clone();
+
+    move || {
+      state.set_loading(LoadingOperation::Stashing(SystemTime::now()));
+      state.send_render();
+
+      let future = async move {
+        let stash_result = repo_clone.stash_with_message(&message).await;
+
+        if let Err(err) = stash_result {
+          error!("{}", err);
+          state.send_error(err.to_string());
+          state.set_loading(LoadingOperation::None);
+          state.send_render();
+          return;
+        }
+
+        // Refresh stashes after creating
+        let stashes_result = repo_clone.stashes().await;
+        if let Ok(stashes) = stashes_result {
+          let stash_items = stashes.iter().map(|stash| StashItem::new(stash.clone())).collect();
+          state.update_stashes(stash_items);
+        }
+
+        state.set_loading(LoadingOperation::None);
+        state.send_render();
+      };
+
+      spawn(future);
+    }
+  }
+
   fn render_list(&mut self, f: &mut Frame<'_>, area: Rect) {
     // Sync state before rendering
     self.sync_state_for_render();
@@ -431,6 +476,7 @@ impl StashList {
       LoadingOperation::DroppingWithProgress(time, current, total) => {
         title = format!("Dropping Stash {}/{}...({})", current, total, format_time_elapsed(time))
       },
+      LoadingOperation::Stashing(time) => title = format!("Stashing...({})", format_time_elapsed(time)),
       LoadingOperation::None => {},
     }
 
@@ -450,6 +496,7 @@ impl StashList {
 impl Component for StashList {
   fn register_action_handler(&mut self, tx: UnboundedSender<Action>) -> color_eyre::Result<()> {
     *self.shared_state.action_tx.lock().unwrap() = Some(tx);
+    self.stash_input.init_style(); // Ensure style is initialized
     Ok(())
   }
 
@@ -458,16 +505,28 @@ impl Component for StashList {
     self.sync_state_for_render();
 
     let layout_base = Layout::default().direction(Direction::Vertical);
-    let chunks = layout_base.constraints([Constraint::Min(1), Constraint::Length(3)]).split(area);
+    let chunks = layout_base
+      .constraints([
+        Constraint::Min(1),
+        Constraint::Length(if self.mode == Mode::Input { 3 } else { 0 }),
+        Constraint::Length(3),
+      ])
+      .split(area);
 
     let stashes = self.stashes.clone();
     let selected_stash = stashes.get(self.selected_index);
+    let has_staged_stashes = stashes.iter().any(|s| s.staged_for_deletion); // Calculate if any stashes are staged
     self.render_list(frame, chunks[0]);
-    self.instruction_footer.render(frame, chunks[1], selected_stash);
+
+    if self.mode == Mode::Input {
+      self.stash_input.render(frame, chunks[1]);
+    }
+
+    self.instruction_footer.render(frame, chunks[2], selected_stash, has_staged_stashes); // Pass the new argument
 
     Ok(())
   }
-}
+} // Correctly close the Component impl block
 
 #[async_trait::async_trait]
 impl AsyncComponent for StashList {
@@ -486,6 +545,16 @@ impl AsyncComponent for StashList {
       },
       Action::SelectNextStash => {
         self.select_next();
+        Ok(None)
+      },
+      Action::InitNewStash => {
+        info!("StashList: Opening stash input");
+        self.mode = Mode::Input;
+        self.stash_input.init_style();
+        Ok(Some(Action::StartInputMode))
+      },
+      Action::EndInputMod => {
+        self.mode = Mode::Selection;
         Ok(None)
       },
       Action::ApplySelectedStash => {
@@ -527,13 +596,27 @@ impl AsyncComponent for StashList {
         operation();
         Ok(None)
       },
+      Action::CreateStash(message) => {
+        info!("StashList: Creating stash with message: {}", message);
+        let operation = self.create_stash(message);
+        operation();
+        Ok(Some(Action::EndInputMod)) // End input mode after creating stash
+      },
       _ => Ok(None),
     }
   }
 }
 
 impl StashList {
+  // Add method to handle key events specifically for the input mode
+  pub fn handle_input_key_event(&mut self, key: KeyEvent) -> Option<Action> {
+    self.stash_input.handle_key_event(key)
+  }
+
   async fn handle_key_events(&mut self, key: KeyEvent) -> color_eyre::Result<Option<Action>> {
+    if self.mode == Mode::Input {
+      return Ok(self.stash_input.handle_key_event(key));
+    }
     let action = match key {
       KeyEvent { code: KeyCode::Down, modifiers: KeyModifiers::NONE, kind: _, state: _ } => {
         Some(Action::SelectNextStash)
@@ -543,6 +626,9 @@ impl StashList {
       },
       KeyEvent { code: KeyCode::Char('a' | 'A'), modifiers: KeyModifiers::NONE, kind: _, state: _ } => {
         Some(Action::ApplySelectedStash)
+      },
+      KeyEvent { code: KeyCode::Char('s' | 'S'), modifiers: KeyModifiers::NONE, kind: _, state: _ } => {
+        Some(Action::InitNewStash)
       },
       KeyEvent { code: KeyCode::Char('p' | 'P'), modifiers: KeyModifiers::NONE, kind: _, state: _ } => {
         Some(Action::PopSelectedStash)
@@ -572,6 +658,7 @@ impl StashList {
   }
 }
 
+// Move helper function outside impl blocks
 fn format_time_elapsed(time: SystemTime) -> String {
   match time.elapsed() {
     Ok(elapsed) => format!("{:.1}s", elapsed.as_secs_f64()),
