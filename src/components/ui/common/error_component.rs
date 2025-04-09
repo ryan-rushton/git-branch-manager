@@ -56,25 +56,24 @@ impl AsyncComponent for ErrorComponent {
     match event {
       Some(crate::tui::Event::Key(key)) => {
         let action = match key.code {
-          KeyCode::Up => {
+          KeyCode::Up | KeyCode::Char('w' | 'W') => {
             if self.scroll > 0 {
               self.scroll -= 1;
             }
             None
           },
-          KeyCode::Down => {
+          KeyCode::Down | KeyCode::Char('s' | 'S') => {
             if !self.has_scrolled_to_bottom() {
               self.scroll += 1;
             }
             None
           },
-          KeyCode::Esc => {
+          _ => {
             self.scroll = 0;
             self.message = None;
             self.last_height = 0;
             Some(Action::ExitError)
           },
-          _ => None,
         };
         Ok(action)
       },
