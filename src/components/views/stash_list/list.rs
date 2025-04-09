@@ -448,6 +448,15 @@ impl StashList {
           return;
         }
 
+        if let Ok(did_stash) = stash_result {
+          if !did_stash {
+            state.send_error("No local changes to stash".to_string());
+            state.set_loading(LoadingOperation::None);
+            state.send_render();
+            return;
+          }
+        }
+
         // Refresh stashes after creating
         let stashes_result = repo_clone.stashes().await;
         if let Ok(stashes) = stashes_result {
