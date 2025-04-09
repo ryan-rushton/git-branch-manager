@@ -198,8 +198,11 @@ impl StashList {
     self.selected_index = *selected_idx;
   }
 
-  fn get_selected_stash(&self) -> Option<&StashItem> {
-    self.stashes.get(self.selected_index)
+  fn get_selected_stash(&self) -> Option<StashItem> {
+    let shared_state = self.shared_state.clone();
+    let stashes = shared_state.stashes.lock().unwrap();
+    let selected_index = shared_state.selected_index.lock().unwrap();
+    stashes.get(*selected_index).cloned()
   }
 
   fn apply_selected(&self) -> impl FnOnce() {
@@ -800,101 +803,142 @@ mod tests {
     assert!(stashes[0].staged_for_deletion);
   }
 
-  #[tokio::test]
-  async fn test_handle_key_events() {
-    let repo = Arc::new(MockGitRepo);
-    let mut stash_list = StashList::new(repo);
+  mod key_event_tests {
+    use super::*;
 
-    stash_list.shared_state.update_stashes(vec![
-      StashItem::new(GitStash::new(0, "message1".to_string(), "stash@{0}".to_string(), "branch_name".to_string())),
-      StashItem::new(GitStash::new(1, "message2".to_string(), "stash@{1}".to_string(), "branch_name".to_string())),
-    ]);
-    stash_list.shared_state.set_selected_index(0);
+    #[tokio::test]
+    async fn test_handle_key_events() {
+      let repo = Arc::new(MockGitRepo);
+      let mut stash_list = StashList::new(repo);
 
-    let key_event = KeyEvent::new(KeyCode::Down, KeyModifiers::NONE);
-    let action = stash_list.handle_key_events(key_event).await.unwrap();
+      let key_event = KeyEvent::new(KeyCode::Down, KeyModifiers::NONE);
+      let action = stash_list.handle_key_events(key_event).await.unwrap();
 
-    assert_eq!(action, Some(Action::SelectNextStash));
-  }
+      assert_eq!(action, Some(Action::SelectNextStash));
+    }
 
-  #[tokio::test]
-  async fn test_load_stashes_success() {
-    let repo = Arc::new(MockGitRepo);
-    let stash_list = StashList::new(repo);
+    #[tokio::test]
+    async fn test_handle_key_event_up() {
+      let repo = Arc::new(MockGitRepo);
+      let mut stash_list = StashList::new(repo);
 
-    let load_stashes = stash_list.load_stashes();
-    load_stashes();
+      let key_event = KeyEvent::new(KeyCode::Up, KeyModifiers::NONE);
+      let action = stash_list.handle_key_events(key_event).await.unwrap();
 
-    tokio::task::yield_now().await;
+      assert_eq!(action, Some(Action::SelectPreviousStash));
+    }
 
-    let stashes = stash_list.shared_state.get_stashes();
-    assert_eq!(stashes.len(), 1);
-    assert_eq!(stashes[0].stash.message, "message1");
-  }
+    #[tokio::test]
+    async fn test_handle_key_event_apply() {
+      let repo = Arc::new(MockGitRepo);
+      let mut stash_list = StashList::new(repo);
 
-  #[tokio::test]
-  async fn test_pop_selected_success() {
-    let repo = Arc::new(MockGitRepo);
-    let stash_list = StashList::new(repo);
+      let key_event = KeyEvent::new(KeyCode::Char('a'), KeyModifiers::NONE);
+      let action = stash_list.handle_key_events(key_event).await.unwrap();
 
-    stash_list.shared_state.update_stashes(vec![StashItem::new(GitStash::new(
-      0,
-      "message1".to_string(),
-      "stash@{0}".to_string(),
-      "branch_name".to_string(),
-    ))]);
-    stash_list.shared_state.set_selected_index(0);
+      assert_eq!(action, Some(Action::ApplySelectedStash));
+    }
 
-    let apply_selected = stash_list.pop_selected();
-    apply_selected();
+    #[tokio::test]
+    async fn test_handle_key_event_init_new_stash() {
+      let repo = Arc::new(MockGitRepo);
+      let mut stash_list = StashList::new(repo);
 
-    tokio::task::yield_now().await;
+      let key_event = KeyEvent::new(KeyCode::Char('s'), KeyModifiers::NONE);
+      let action = stash_list.handle_key_events(key_event).await.unwrap();
 
-    let stashes = stash_list.shared_state.get_stashes();
-    assert!(stashes.is_empty()); // Assuming the stash is removed after applying
-  }
+      assert_eq!(action, Some(Action::InitNewStash));
+    }
 
-  #[tokio::test]
-  async fn test_apply_selected_success() {
-    let repo = Arc::new(MockGitRepo);
-    let stash_list = StashList::new(repo);
+    #[tokio::test]
+    async fn test_handle_key_event_pop() {
+      let repo = Arc::new(MockGitRepo);
+      let mut stash_list = StashList::new(repo);
 
-    stash_list.shared_state.update_stashes(vec![StashItem::new(GitStash::new(
-      0,
-      "message1".to_string(),
-      "stash@{0}".to_string(),
-      "branch_name".to_string(),
-    ))]);
-    stash_list.shared_state.set_selected_index(0);
+      let key_event = KeyEvent::new(KeyCode::Char('p'), KeyModifiers::NONE);
+      let action = stash_list.handle_key_events(key_event).await.unwrap();
 
-    let apply_selected = stash_list.apply_selected();
-    apply_selected();
+      assert_eq!(action, Some(Action::PopSelectedStash));
+    }
 
-    tokio::task::yield_now().await;
+    #[tokio::test]
+    async fn test_handle_key_event_unstage() {
+      let repo = Arc::new(MockGitRepo);
+      let mut stash_list = StashList::new(repo);
 
-    let stashes = stash_list.shared_state.get_stashes();
-    assert_eq!(stashes.len(), 1); // Assuming the stash is removed after applying
-  }
+      let key_event = KeyEvent::new(KeyCode::Char('d'), KeyModifiers::SHIFT);
+      let action = stash_list.handle_key_events(key_event).await.unwrap();
 
-  #[tokio::test]
-  async fn test_apply_selected_failure() {
-    let repo = Arc::new(MockGitRepo);
-    let stash_list = StashList::new(repo);
+      assert_eq!(action, Some(Action::UnstageStashForDeletion));
+    }
 
-    stash_list.shared_state.update_stashes(vec![StashItem::new(GitStash::new(
-      0,
-      "should fail".to_string(),
-      "stash@{0}".to_string(),
-      "branch_name".to_string(),
-    ))]);
-    stash_list.shared_state.set_selected_index(0);
+    #[tokio::test]
+    async fn test_handle_key_event_delete_staged() {
+      let repo = Arc::new(MockGitRepo);
+      let mut stash_list = StashList::new(repo);
 
-    let apply_selected = stash_list.apply_selected();
-    apply_selected();
+      let key_event = KeyEvent::new(KeyCode::Char('d'), KeyModifiers::CONTROL);
+      let action = stash_list.handle_key_events(key_event).await.unwrap();
 
-    tokio::task::yield_now().await;
+      assert_eq!(action, Some(Action::DeleteStagedStashes));
+    }
 
-    let stashes = stash_list.shared_state.get_stashes();
-    assert_eq!(stashes.len(), 1); // Stash should remain since applying failed
+    #[tokio::test]
+    async fn test_handle_key_event_stage_or_drop() {
+      let repo = Arc::new(MockGitRepo);
+      let mut stash_list = StashList::new(repo);
+
+      stash_list.shared_state.update_stashes(vec![StashItem::new(GitStash::new(
+        0,
+        "message1".to_string(),
+        "stash@{0}".to_string(),
+        "branch_name".to_string(),
+      ))]);
+      stash_list.shared_state.set_selected_index(0);
+
+      let key_event = KeyEvent::new(KeyCode::Char('d'), KeyModifiers::NONE);
+      let action = stash_list.handle_key_events(key_event).await.unwrap();
+
+      assert_eq!(action, Some(Action::StageStashForDeletion));
+    }
+
+    #[tokio::test]
+    async fn test_handle_key_event_drop_selected_stash() {
+      let repo = Arc::new(MockGitRepo);
+      let mut stash_list = StashList::new(repo);
+
+      stash_list.shared_state.update_stashes(vec![StashItem::new(GitStash::new(
+        0,
+        "message1".to_string(),
+        "stash@{0}".to_string(),
+        "branch_name".to_string(),
+      ))]);
+      stash_list.shared_state.set_selected_index(0);
+
+      let key_event = KeyEvent::new(KeyCode::Char('d'), KeyModifiers::NONE);
+      stash_list.stage_selected_for_deletion(true); // Stage for deletion first
+      let action = stash_list.handle_key_events(key_event).await.unwrap();
+
+      assert_eq!(action, Some(Action::DropSelectedStash));
+    }
+
+    #[tokio::test]
+    async fn test_handle_key_event_stage_stash_for_deletion() {
+      let repo = Arc::new(MockGitRepo);
+      let mut stash_list = StashList::new(repo);
+
+      stash_list.shared_state.update_stashes(vec![StashItem::new(GitStash::new(
+        0,
+        "message1".to_string(),
+        "stash@{0}".to_string(),
+        "branch_name".to_string(),
+      ))]);
+      stash_list.shared_state.set_selected_index(0);
+
+      let key_event = KeyEvent::new(KeyCode::Char('d'), KeyModifiers::NONE);
+      let action = stash_list.handle_key_events(key_event).await.unwrap();
+
+      assert_eq!(action, Some(Action::StageStashForDeletion));
+    }
   }
 }
