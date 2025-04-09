@@ -276,7 +276,8 @@ impl StashList {
         // Refresh stashes after popping
         let stashes_result = repo_clone.stashes().await;
         if let Ok(stashes) = stashes_result {
-          let stash_items = stashes.iter().map(|stash| StashItem::new(stash.clone())).collect();
+          let stash_items =
+            stashes.iter().filter(|stash| **stash != stash_to_pop).map(|stash| StashItem::new(stash.clone())).collect();
           state.update_stashes(stash_items);
         }
 
@@ -675,5 +676,225 @@ fn format_time_elapsed(time: SystemTime) -> String {
       warn!("Failed to get system time {}", err);
       String::from("xs")
     },
+  }
+}
+
+#[cfg(test)]
+mod tests {
+  use tokio::sync::mpsc;
+
+  use super::*;
+  use crate::git::types::MockGitRepo;
+
+  #[tokio::test]
+  async fn test_shared_state_loading() {
+    let state = SharedState::new();
+    state.set_loading(LoadingOperation::LoadingStashes(SystemTime::now()));
+
+    let loading = *state.loading.lock().unwrap();
+    assert!(matches!(loading, LoadingOperation::LoadingStashes(_)));
+  }
+
+  #[tokio::test]
+  async fn test_shared_state_send_error() {
+    let state = SharedState::new();
+    let (tx, mut rx) = mpsc::unbounded_channel();
+    *state.action_tx.lock().unwrap() = Some(tx);
+
+    state.send_error("Test error".to_string());
+
+    if let Some(Action::Error(message)) = rx.recv().await {
+      assert_eq!(message, "Test error");
+    } else {
+      panic!("Expected Action::Error");
+    }
+  }
+
+  #[tokio::test]
+  async fn test_stash_list_select_previous() {
+    let repo = Arc::new(MockGitRepo);
+    let mut stash_list = StashList::new(repo);
+
+    stash_list.shared_state.update_stashes(vec![
+      StashItem::new(GitStash::new(0, "message1".to_string(), "stash@{0}".to_string(), "branch_name".to_string())),
+      StashItem::new(GitStash::new(1, "message2".to_string(), "stash@{1}".to_string(), "branch_name".to_string())),
+    ]);
+    stash_list.shared_state.set_selected_index(0);
+
+    stash_list.select_previous();
+    assert_eq!(stash_list.shared_state.get_selected_index(), 1);
+  }
+
+  #[tokio::test]
+  async fn test_stash_list_select_next() {
+    let repo = Arc::new(MockGitRepo);
+    let mut stash_list = StashList::new(repo);
+
+    stash_list.shared_state.update_stashes(vec![
+      StashItem::new(GitStash::new(0, "message1".to_string(), "stash@{0}".to_string(), "branch_name".to_string())),
+      StashItem::new(GitStash::new(1, "message2".to_string(), "stash@{1}".to_string(), "branch_name".to_string())),
+    ]);
+    stash_list.shared_state.set_selected_index(0);
+
+    stash_list.select_next();
+    assert_eq!(stash_list.shared_state.get_selected_index(), 1);
+  }
+
+  #[tokio::test]
+  async fn test_sync_state_for_render() {
+    let repo = Arc::new(MockGitRepo);
+    let mut stash_list = StashList::new(repo);
+
+    stash_list.shared_state.set_loading(LoadingOperation::Applying(SystemTime::now()));
+    stash_list.shared_state.update_stashes(vec![StashItem::new(GitStash::new(
+      0,
+      "message1".to_string(),
+      "stash@{0}".to_string(),
+      "branch_name".to_string(),
+    ))]);
+    stash_list.shared_state.set_selected_index(0);
+
+    stash_list.sync_state_for_render();
+
+    assert!(matches!(stash_list.loading, LoadingOperation::Applying(_)));
+    assert_eq!(stash_list.stashes.len(), 1);
+    assert_eq!(stash_list.selected_index, 0);
+  }
+
+  #[tokio::test]
+  async fn test_get_selected_stash() {
+    let repo = Arc::new(MockGitRepo);
+    let mut stash_list = StashList::new(repo);
+
+    stash_list.shared_state.update_stashes(vec![StashItem::new(GitStash::new(
+      0,
+      "message1".to_string(),
+      "stash@{0}".to_string(),
+      "branch_name".to_string(),
+    ))]);
+    stash_list.shared_state.set_selected_index(0);
+
+    stash_list.sync_state_for_render();
+    let selected_stash = stash_list.get_selected_stash();
+
+    assert!(selected_stash.is_some());
+    assert_eq!(selected_stash.unwrap().stash.message, "message1");
+  }
+
+  #[tokio::test]
+  async fn test_stage_selected_for_deletion() {
+    let repo = Arc::new(MockGitRepo);
+    let mut stash_list = StashList::new(repo);
+
+    stash_list.shared_state.update_stashes(vec![StashItem::new(GitStash::new(
+      0,
+      "message1".to_string(),
+      "stash@{0}".to_string(),
+      "branch_name".to_string(),
+    ))]);
+    stash_list.shared_state.set_selected_index(0);
+
+    stash_list.stage_selected_for_deletion(true);
+    let stashes = stash_list.shared_state.get_stashes();
+
+    assert!(stashes[0].staged_for_deletion);
+  }
+
+  #[tokio::test]
+  async fn test_handle_key_events() {
+    let repo = Arc::new(MockGitRepo);
+    let mut stash_list = StashList::new(repo);
+
+    stash_list.shared_state.update_stashes(vec![
+      StashItem::new(GitStash::new(0, "message1".to_string(), "stash@{0}".to_string(), "branch_name".to_string())),
+      StashItem::new(GitStash::new(1, "message2".to_string(), "stash@{1}".to_string(), "branch_name".to_string())),
+    ]);
+    stash_list.shared_state.set_selected_index(0);
+
+    let key_event = KeyEvent::new(KeyCode::Down, KeyModifiers::NONE);
+    let action = stash_list.handle_key_events(key_event).await.unwrap();
+
+    assert_eq!(action, Some(Action::SelectNextStash));
+  }
+
+  #[tokio::test]
+  async fn test_load_stashes_success() {
+    let repo = Arc::new(MockGitRepo);
+    let stash_list = StashList::new(repo);
+
+    let load_stashes = stash_list.load_stashes();
+    load_stashes();
+
+    tokio::task::yield_now().await;
+
+    let stashes = stash_list.shared_state.get_stashes();
+    assert_eq!(stashes.len(), 1);
+    assert_eq!(stashes[0].stash.message, "message1");
+  }
+
+  #[tokio::test]
+  async fn test_pop_selected_success() {
+    let repo = Arc::new(MockGitRepo);
+    let stash_list = StashList::new(repo);
+
+    stash_list.shared_state.update_stashes(vec![StashItem::new(GitStash::new(
+      0,
+      "message1".to_string(),
+      "stash@{0}".to_string(),
+      "branch_name".to_string(),
+    ))]);
+    stash_list.shared_state.set_selected_index(0);
+
+    let apply_selected = stash_list.pop_selected();
+    apply_selected();
+
+    tokio::task::yield_now().await;
+
+    let stashes = stash_list.shared_state.get_stashes();
+    assert!(stashes.is_empty()); // Assuming the stash is removed after applying
+  }
+
+  #[tokio::test]
+  async fn test_apply_selected_success() {
+    let repo = Arc::new(MockGitRepo);
+    let stash_list = StashList::new(repo);
+
+    stash_list.shared_state.update_stashes(vec![StashItem::new(GitStash::new(
+      0,
+      "message1".to_string(),
+      "stash@{0}".to_string(),
+      "branch_name".to_string(),
+    ))]);
+    stash_list.shared_state.set_selected_index(0);
+
+    let apply_selected = stash_list.apply_selected();
+    apply_selected();
+
+    tokio::task::yield_now().await;
+
+    let stashes = stash_list.shared_state.get_stashes();
+    assert_eq!(stashes.len(), 1); // Assuming the stash is removed after applying
+  }
+
+  #[tokio::test]
+  async fn test_apply_selected_failure() {
+    let repo = Arc::new(MockGitRepo);
+    let stash_list = StashList::new(repo);
+
+    stash_list.shared_state.update_stashes(vec![StashItem::new(GitStash::new(
+      0,
+      "should fail".to_string(),
+      "stash@{0}".to_string(),
+      "branch_name".to_string(),
+    ))]);
+    stash_list.shared_state.set_selected_index(0);
+
+    let apply_selected = stash_list.apply_selected();
+    apply_selected();
+
+    tokio::task::yield_now().await;
+
+    let stashes = stash_list.shared_state.get_stashes();
+    assert_eq!(stashes.len(), 1); // Stash should remain since applying failed
   }
 }

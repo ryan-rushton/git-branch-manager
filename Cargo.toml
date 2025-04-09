@@ -45,3 +45,6 @@ tui-textarea = "0.7.0"
 
 [build-dependencies]
 vergen = { version = "=8.3.2", features = ["build", "git", "gitcl", "cargo"] }
+
+[dev-dependencies]
+mockall = "0.13.1"
