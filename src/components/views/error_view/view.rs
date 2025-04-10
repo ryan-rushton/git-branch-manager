@@ -11,13 +11,13 @@ use crate::{
 };
 
 #[derive(Default)]
-pub struct ErrorComponent {
+pub struct ErrorView {
   message: Option<String>,
   scroll: u16,
   last_height: u16,
 }
 
-impl ErrorComponent {
+impl ErrorView {
   pub fn set_message(&mut self, message: String) {
     self.message = Some(message);
   }
@@ -33,7 +33,7 @@ impl ErrorComponent {
   }
 }
 
-impl Component for ErrorComponent {
+impl Component for ErrorView {
   fn register_action_handler(&mut self, _tx: UnboundedSender<Action>) -> color_eyre::Result<()> {
     Ok(())
   }
@@ -51,7 +51,7 @@ impl Component for ErrorComponent {
 }
 
 #[async_trait::async_trait]
-impl AsyncComponent for ErrorComponent {
+impl AsyncComponent for ErrorView {
   async fn handle_events(&mut self, event: Option<crate::tui::Event>) -> color_eyre::Result<Option<Action>> {
     match event {
       Some(crate::tui::Event::Key(key)) => {
