@@ -4,24 +4,35 @@ use ratatui::{
   widgets::ListItem,
 };
 
-use crate::git::types::GitStash;
+use crate::{components::traits::list_item_wrapper::ListItemWrapper, git::types::GitStash};
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct StashItem {
   pub stash: GitStash,
   pub staged_for_deletion: bool,
 }
 
-impl StashItem {
-  pub fn new(stash: GitStash) -> Self {
+// impl StashItem { // Original impl block removed
+// } // Original impl block removed
+
+impl ListItemWrapper<GitStash> for StashItem {
+  fn new(stash: GitStash) -> Self {
     StashItem { stash, staged_for_deletion: false }
   }
 
-  pub fn stage_for_deletion(&mut self, stage: bool) {
+  fn stage_for_deletion(&mut self, stage: bool) {
     self.staged_for_deletion = stage;
   }
 
-  pub fn render(&self) -> ListItem {
+  fn is_staged_for_deletion(&self) -> bool {
+    self.staged_for_deletion
+  }
+
+  fn inner_item(&self) -> &GitStash {
+    &self.stash
+  }
+
+  fn render(&self) -> ListItem {
     let mut text = Line::default();
     let mut parts = Vec::new();
 

@@ -7,7 +7,10 @@ use tokio::sync::mpsc;
 
 use crate::{
   action::Action,
-  components::{AsyncComponent, BranchList, Component, ErrorView, StashList},
+  components::{
+    AsyncComponent, Component, ErrorView,
+    views::{BranchListComponent, StashListComponent},
+  }, // Updated imports
   config::Config,
   git::GitCliRepo,
   mode::Mode,
@@ -37,8 +40,8 @@ impl App {
   pub fn new() -> Result<Self> {
     let config = Config::new()?;
     let git_repo = GitCliRepo::from_cwd().map_err(|e| color_eyre::eyre::eyre!(e.to_string()))?;
-    let branch_list = Box::new(BranchList::new(Arc::new(git_repo.clone())));
-    let stash_list = Box::new(StashList::new(Arc::new(git_repo)));
+    let branch_list = Box::new(BranchListComponent::new(Arc::new(git_repo.clone()))); // Use type alias
+    let stash_list = Box::new(StashListComponent::new(Arc::new(git_repo))); // Use type alias
     let error_component = ErrorView::default();
     let mode = Mode::Default;
     Ok(Self {

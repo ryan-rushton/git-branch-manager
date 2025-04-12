@@ -1,6 +1,6 @@
 use async_trait::async_trait;
 
-use crate::error::Error;
+use crate::{components::traits::managed_item::ManagedItem, error::Error};
 
 #[derive(Debug, Default, Clone, PartialEq, Eq)]
 pub struct GitRemoteBranch {
@@ -26,6 +26,9 @@ impl GitBranch {
   }
 }
 
+impl ManagedItem for GitBranch {
+}
+
 #[derive(Debug, Default, Clone, PartialEq, Eq)]
 pub struct GitStash {
   pub index: usize,
@@ -38,6 +41,9 @@ impl GitStash {
   pub fn new(index: usize, message: String, stash_id: String, branch_name: String) -> Self {
     GitStash { index, message, stash_id, branch_name }
   }
+}
+
+impl ManagedItem for GitStash {
 }
 
 #[async_trait::async_trait]
