@@ -671,7 +671,7 @@ mod tests {
   use tokio::sync::mpsc;
 
   use super::*;
-  use crate::git::types::MockGitRepo;
+  use crate::git::mock_git_repo::MockGitRepo;
 
   #[tokio::test]
   async fn test_shared_state_loading() {
