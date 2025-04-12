@@ -95,13 +95,8 @@ impl SharedState {
 pub struct BranchList {
   mode: Mode,
   repo: Arc<dyn GitRepo>,
-  // Moved to shared state
   shared_state: SharedState,
-  // Local cached copies for rendering
-  loading: LoadingOperation,
-  branches: Vec<BranchItem>,
   list_state: ListState,
-  selected_index: usize,
   // Components
   branch_input: BranchInput,
   instruction_footer: InstructionFooter,
@@ -115,25 +110,15 @@ impl BranchList {
       repo,
       mode: Mode::Selection,
       shared_state,
-      loading: LoadingOperation::None,
-      branches: Vec::new(),
       list_state: ListState::default(),
-      selected_index: 0,
       branch_input: BranchInput::new(),
       instruction_footer: InstructionFooter::default(),
     }
   }
 
-  // Sync UI state with shared state
-  fn sync_state_for_render(&mut self) {
-    self.loading = *self.shared_state.loading.lock().unwrap();
-    self.branches = self.shared_state.get_branches();
-    self.selected_index = self.shared_state.get_selected_index();
-  }
-
   pub fn load_branches(&self) -> impl FnOnce() {
     let state = self.shared_state.clone();
-    let repo_clone = self.repo.clone(); // Assuming repo can be cloned, might need a different approach
+    let repo_clone = self.repo.clone();
 
     move || {
       state.set_loading(LoadingOperation::LoadingBranches(SystemTime::now()));
@@ -175,9 +160,6 @@ impl BranchList {
       return;
     }
     *selected_idx -= 1;
-
-    // Update local copy for rendering
-    self.selected_index = *selected_idx;
   }
 
   pub fn select_next(&mut self) {
@@ -193,13 +175,18 @@ impl BranchList {
       return;
     }
     *selected_idx += 1;
-
-    // Update local copy for rendering
-    self.selected_index = *selected_idx;
   }
 
-  fn get_selected_branch(&self) -> Option<&BranchItem> {
-    self.branches.get(self.selected_index)
+  fn get_selected_branch(&self) -> Option<BranchItem> {
+    let branches = self.shared_state.get_branches();
+    if branches.is_empty() {
+      return None;
+    }
+    let selected_idx = self.shared_state.get_selected_index();
+    if selected_idx >= branches.len() {
+      return None;
+    }
+    branches.get(selected_idx).cloned()
   }
 
   fn checkout_selected(&self) -> impl FnOnce() {
@@ -260,9 +247,6 @@ impl BranchList {
 
     selected.stage_for_deletion(stage);
     self.shared_state.update_branches(branches);
-
-    // Update local copy for rendering
-    self.branches = self.shared_state.get_branches();
   }
 
   pub fn delete_selected(&self) -> impl FnOnce() {
@@ -353,7 +337,7 @@ impl BranchList {
               error!("Failed to delete branch {}: {}", branch.name, err);
             }
           }
-          // Update progress
+
           state.set_loading(LoadingOperation::DeletingWithProgress(start_time, i + 1, total_branches));
           state.send_render();
         }
@@ -441,11 +425,10 @@ impl BranchList {
   }
 
   fn render_list(&mut self, f: &mut Frame<'_>, area: Rect) {
-    // Sync state before rendering
-    self.sync_state_for_render();
+    let mut branches = self.shared_state.get_branches();
+    let selected_index = self.shared_state.get_selected_index();
+    let loading = *self.shared_state.loading.lock().unwrap();
 
-    // TODO don't clone, figure out the index to place the pseudo branch in the list
-    let mut branches = self.branches.clone();
     let input_state = self.branch_input.input_state.clone();
     if input_state.value.is_some() && self.mode == Mode::Input {
       let content = input_state.value.unwrap();
@@ -458,11 +441,11 @@ impl BranchList {
       branches.sort_by(|a, b| a.branch.name.cmp(&b.branch.name));
       self.list_state.select(branches.iter().position(|bi| bi.staged_for_creation))
     } else {
-      self.list_state.select(Some(self.selected_index));
+      self.list_state.select(Some(selected_index));
     }
 
     let mut title = String::from("Local Branches");
-    match self.loading {
+    match loading {
       LoadingOperation::LoadingBranches(time) => title = format!("Loading Branches...({})", format_time_elapsed(time)),
       LoadingOperation::CheckingOut(time) => title = format!("Checking Out Branch...({})", format_time_elapsed(time)),
       LoadingOperation::Creating(time) => title = format!("Creating Branch...({})", format_time_elapsed(time)),
@@ -530,8 +513,7 @@ impl Component for BranchList {
   }
 
   fn draw(&mut self, frame: &mut Frame<'_>, area: Rect) -> color_eyre::Result<()> {
-    // Sync with shared state before rendering
-    self.sync_state_for_render();
+    let branches = self.shared_state.get_branches();
 
     let layout_base = Layout::default().direction(Direction::Vertical);
 
@@ -550,7 +532,8 @@ impl Component for BranchList {
     }
 
     let selected_branch = self.get_selected_branch();
-    self.instruction_footer.render(frame, chunks[2], selected_branch);
+    let has_staged_for_deletion = branches.iter().any(|branch| branch.staged_for_deletion);
+    self.instruction_footer.render(frame, chunks[2], selected_branch, has_staged_for_deletion);
 
     Ok(())
   }

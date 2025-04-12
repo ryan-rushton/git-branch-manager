@@ -12,6 +12,7 @@ pub enum Action {
   Error(String),
   ExitError,
   InitNewBranch,
+  InitNewStash,
   Quit,
   Refresh,
   Render,
@@ -34,4 +35,5 @@ pub enum Action {
   StageStashForDeletion,
   UnstageStashForDeletion,
   DeleteStagedStashes,
+  CreateStash(String),
 }

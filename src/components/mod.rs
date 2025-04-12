@@ -2,11 +2,9 @@ use tokio::sync::mpsc::UnboundedSender;
 
 use crate::{action::Action, tui::Frame};
 
-pub mod ui;
 pub mod views;
 
-pub use ui::ErrorComponent;
-pub use views::{BranchList, StashList};
+pub use views::{BranchList, ErrorView, StashList};
 
 #[async_trait::async_trait]
 pub trait AsyncComponent: Component {

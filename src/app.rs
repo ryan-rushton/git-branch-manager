@@ -7,7 +7,7 @@ use tokio::sync::mpsc;
 
 use crate::{
   action::Action,
-  components::{AsyncComponent, BranchList, Component, ErrorComponent, StashList},
+  components::{AsyncComponent, BranchList, Component, ErrorView, StashList},
   config::Config,
   git::GitCliRepo,
   mode::Mode,
@@ -26,7 +26,7 @@ pub struct App {
   pub config: Config,
   pub branch_list: Box<dyn AsyncComponent>,
   pub stash_list: Box<dyn AsyncComponent>,
-  pub error_component: ErrorComponent,
+  pub error_component: ErrorView,
   pub should_quit: bool,
   pub should_suspend: bool,
   pub mode: Mode,
@@ -39,7 +39,7 @@ impl App {
     let git_repo = GitCliRepo::from_cwd().map_err(|e| color_eyre::eyre::eyre!(e.to_string()))?;
     let branch_list = Box::new(BranchList::new(Arc::new(git_repo.clone())));
     let stash_list = Box::new(StashList::new(Arc::new(git_repo)));
-    let error_component = ErrorComponent::default();
+    let error_component = ErrorView::default();
     let mode = Mode::Default;
     Ok(Self {
       config,
