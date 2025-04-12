@@ -10,6 +10,8 @@ pub enum Action {
   DeleteStagedBranches,
   EndInputMod,
   Error(String),
+  ItemsLoaded,     // Added for generic list
+  LoadingComplete, // Added for generic list
   ExitError,
   InitNewBranch,
   InitNewStash,
@@ -18,17 +20,18 @@ pub enum Action {
   Render,
   Resize(u16, u16),
   Resume,
-  SelectNextBranch,
-  SelectPreviousBranch,
+  SelectNext,     // Generic selection
+  SelectPrevious, // Generic selection
   StageBranchForDeletion,
   StartInputMode,
+  SetLoading(bool), // Added for generic list
   Suspend,
   Tick,
   ToggleView,
   UnstageBranchForDeletion,
-  UpdateNewBranchName(KeyEvent),
-  SelectNextStash,
-  SelectPreviousStash,
+  // UpdateNewBranchName(KeyEvent), // Removed, handled internally by GenericInputComponent
+  // SelectNextStash, // Removed, use SelectNext
+  // SelectPreviousStash, // Removed, use SelectPrevious
   ApplySelectedStash,
   PopSelectedStash,
   DropSelectedStash,
