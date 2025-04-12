@@ -84,3 +84,115 @@ impl TextInput {
     f.render_widget(&self.text_input, area);
   }
 }
+
+#[cfg(test)]
+mod tests {
+  use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+
+  use super::*;
+
+  #[test]
+  fn test_get_text() {
+    let mut text_input = TextInput::new();
+    text_input.text_input.insert_str("test input");
+
+    assert_eq!(text_input.get_text(), Some("test input".to_string()));
+  }
+
+  #[test]
+  fn test_get_text_empty() {
+    let text_input = TextInput::new();
+
+    assert_eq!(text_input.get_text(), None);
+  }
+
+  #[test]
+  fn test_handle_key_event_enter_valid_input() {
+    let mut text_input = TextInput::new();
+    text_input.text_input.insert_str("valid input");
+
+    let validate_fn = |input: &str| !input.is_empty();
+    let action = text_input.handle_key_event(
+      KeyEvent {
+        code: KeyCode::Enter,
+        modifiers: KeyModifiers::NONE,
+        kind: crossterm::event::KeyEventKind::Press,
+        state: crossterm::event::KeyEventState::NONE,
+      },
+      validate_fn,
+    );
+
+    assert_eq!(action, Some(Action::InputSubmitted("valid input".to_string())));
+    assert_eq!(text_input.input_state.value, Some("valid input".to_string()));
+    assert_eq!(text_input.input_state.is_valid, Some(true));
+  }
+
+  #[test]
+  fn test_handle_key_event_enter_invalid_input() {
+    let mut text_input = TextInput::new();
+    text_input.text_input.insert_str("invalid input");
+
+    let validate_fn = |input: &str| !input.eq("invalid input");
+    let action = text_input.handle_key_event(
+      KeyEvent {
+        code: KeyCode::Enter,
+        modifiers: KeyModifiers::NONE,
+        kind: crossterm::event::KeyEventKind::Press,
+        state: crossterm::event::KeyEventState::NONE,
+      },
+      validate_fn,
+    );
+
+    assert_eq!(action, None);
+    assert_eq!(text_input.input_state.value, None);
+    assert_eq!(text_input.input_state.is_valid, Some(false));
+  }
+
+  #[test]
+  fn test_handle_key_event_escape() {
+    let mut text_input = TextInput::new();
+    text_input.text_input.insert_str("some input");
+
+    let validate_fn = |_input: &str| true;
+    let action = text_input.handle_key_event(
+      KeyEvent {
+        code: KeyCode::Esc,
+        modifiers: KeyModifiers::NONE,
+        kind: crossterm::event::KeyEventKind::Press,
+        state: crossterm::event::KeyEventState::NONE,
+      },
+      validate_fn,
+    );
+
+    assert_eq!(action, Some(Action::EndInputMode));
+    assert_eq!(text_input.input_state.value, None);
+    assert_eq!(text_input.input_state.is_valid, None);
+  }
+
+  #[test]
+  fn test_handle_key_event_typing() {
+    let mut text_input = TextInput::new();
+
+    let validate_fn = |_input: &str| true;
+    text_input.handle_key_event(
+      KeyEvent {
+        code: KeyCode::Char('h'),
+        modifiers: KeyModifiers::NONE,
+        kind: crossterm::event::KeyEventKind::Press,
+        state: crossterm::event::KeyEventState::NONE,
+      },
+      validate_fn,
+    );
+    text_input.handle_key_event(
+      KeyEvent {
+        code: KeyCode::Char('i'),
+        modifiers: KeyModifiers::NONE,
+        kind: crossterm::event::KeyEventKind::Press,
+        state: crossterm::event::KeyEventState::NONE,
+      },
+      validate_fn,
+    );
+
+    assert_eq!(text_input.get_text(), Some("hi".to_string()));
+  }
+}
