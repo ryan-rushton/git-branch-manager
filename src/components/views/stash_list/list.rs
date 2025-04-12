@@ -551,7 +551,7 @@ impl AsyncComponent for StashList {
         self.stash_input.init_style();
         Ok(Some(Action::StartInputMode))
       },
-      Action::EndInputMod => {
+      Action::EndInputMode => {
         self.mode = Mode::Selection;
         Ok(None)
       },
@@ -598,7 +598,7 @@ impl AsyncComponent for StashList {
         info!("StashList: Creating stash with message: {}", message);
         let operation = self.create_stash(message);
         operation();
-        Ok(Some(Action::EndInputMod))
+        Ok(Some(Action::EndInputMode))
       },
       _ => Ok(None),
     }

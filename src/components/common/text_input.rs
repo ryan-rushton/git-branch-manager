@@ -7,7 +7,7 @@ use ratatui::{
 };
 use tui_textarea::{CursorMove, Input, TextArea};
 
-use crate::tui::Frame;
+use crate::{action::Action, tui::Frame};
 
 #[derive(Debug, Default, Clone)]
 pub struct InputState {
@@ -40,7 +40,7 @@ impl TextInput {
   }
 
   // Returns the submitted text if the input is valid and enter was pressed.
-  pub fn handle_key_event<F>(&mut self, key_event: KeyEvent, validate_fn: F) -> Option<String>
+  pub fn handle_key_event<F>(&mut self, key_event: KeyEvent, validate_fn: F) -> Option<Action>
   where
     F: Fn(&str) -> bool,
   {
@@ -50,16 +50,17 @@ impl TextInput {
         self.input_state.is_valid = None;
         self.text_input.move_cursor(CursorMove::Head);
         self.text_input.delete_line_by_end();
-        None
+        Some(Action::EndInputMode)
       },
       KeyEvent { code: KeyCode::Enter, .. } => {
         let input_text = self.get_text();
         if let Some(text) = input_text {
           if validate_fn(&text) {
-            let result = Some(text.clone());
-            self.input_state.value = result.clone();
+            self.input_state.value = Some(text.clone());
             self.input_state.is_valid = Some(true);
-            return result;
+            self.text_input.move_cursor(CursorMove::Head);
+            self.text_input.delete_line_by_end();
+            return Some(Action::InputSubmitted(text.clone()));
           } else {
             self.input_state.is_valid = Some(false);
           }

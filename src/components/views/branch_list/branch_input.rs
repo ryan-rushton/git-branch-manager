@@ -43,7 +43,12 @@ impl BranchInput {
   ) -> Option<Action> {
     let validate_fn = |proposed_name: &str| BranchInput::validate_branch_name(proposed_name, repo, &current_branches);
 
-    self.text_input.handle_key_event(key_event, validate_fn).map(Action::CreateBranch)
+    self.text_input.handle_key_event(key_event, validate_fn).map(|action| {
+      match action {
+        Action::InputSubmitted(text) => Action::CreateBranch(text),
+        _ => action,
+      }
+    })
   }
 
   pub fn render(&mut self, f: &mut Frame<'_>, area: Rect) {

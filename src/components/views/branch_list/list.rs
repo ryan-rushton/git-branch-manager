@@ -564,7 +564,7 @@ impl AsyncComponent for BranchList {
         self.branch_input.init_style();
         Ok(Some(Action::StartInputMode))
       },
-      Action::EndInputMod => {
+      Action::EndInputMode => {
         self.mode = Mode::Selection;
         Ok(None)
       },
@@ -588,7 +588,7 @@ impl AsyncComponent for BranchList {
         self.mode = Mode::Selection;
         let operation = self.create_branch(name);
         operation();
-        Ok(Some(Action::EndInputMod))
+        Ok(Some(Action::EndInputMode))
       },
       Action::StageBranchForDeletion => {
         info!("BranchList: Staging branch for deletion");
