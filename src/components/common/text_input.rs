@@ -39,7 +39,8 @@ impl TextInput {
     Some(input)
   }
 
-  pub fn handle_key_event<F>(&mut self, key_event: KeyEvent, validate_fn: F) -> Option<()>
+  // Returns the submitted text if the input is valid and enter was pressed.
+  pub fn handle_key_event<F>(&mut self, key_event: KeyEvent, validate_fn: F) -> Option<String>
   where
     F: Fn(&str) -> bool,
   {
@@ -55,8 +56,10 @@ impl TextInput {
         let input_text = self.get_text();
         if let Some(text) = input_text {
           if validate_fn(&text) {
-            self.input_state.value = Some(text);
+            let result = Some(text.clone());
+            self.input_state.value = result.clone();
             self.input_state.is_valid = Some(true);
+            return result;
           } else {
             self.input_state.is_valid = Some(false);
           }

@@ -20,11 +20,7 @@ impl StashInput {
   pub fn handle_key_event(&mut self, key_event: KeyEvent) -> Option<Action> {
     let validate_fn = |_message: &str| true;
 
-    self.text_input.handle_key_event(key_event, validate_fn);
-    if let Some(message) = self.text_input.input_state.value.clone() {
-      return Some(Action::CreateStash(message));
-    }
-    None
+    self.text_input.handle_key_event(key_event, validate_fn).map(Action::CreateStash)
   }
 
   pub fn render(&mut self, f: &mut Frame<'_>, area: Rect) {
