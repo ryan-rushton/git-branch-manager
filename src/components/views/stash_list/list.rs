@@ -97,12 +97,8 @@ impl SharedState {
 pub struct StashList {
   repo: Arc<dyn GitRepo>,
   shared_state: SharedState,
-  // Local cached copies for rendering
-  loading: LoadingOperation,
   mode: Mode,
-  stashes: Vec<StashItem>,
   list_state: ListState,
-  selected_index: usize,
   instruction_footer: InstructionFooter,
   stash_input: StashInput, // Add stash input component
 }
@@ -114,21 +110,11 @@ impl StashList {
     StashList {
       repo,
       shared_state,
-      loading: LoadingOperation::None,
       mode: Mode::Selection,
-      stashes: Vec::new(),
       list_state: ListState::default(),
-      selected_index: 0,
       instruction_footer: InstructionFooter::default(),
       stash_input: StashInput::new(), // Initialize stash input
     }
-  }
-
-  // Sync UI state with shared state
-  fn sync_state_for_render(&mut self) {
-    self.loading = *self.shared_state.loading.lock().unwrap();
-    self.stashes = self.shared_state.get_stashes();
-    self.selected_index = self.shared_state.get_selected_index();
   }
 
   pub fn load_stashes(&self) -> impl FnOnce() {
@@ -175,9 +161,6 @@ impl StashList {
       return;
     }
     *selected_idx -= 1;
-
-    // Update local copy for rendering
-    self.selected_index = *selected_idx;
   }
 
   pub fn select_next(&mut self) {
@@ -193,16 +176,18 @@ impl StashList {
       return;
     }
     *selected_idx += 1;
-
-    // Update local copy for rendering
-    self.selected_index = *selected_idx;
   }
 
   fn get_selected_stash(&self) -> Option<StashItem> {
-    let shared_state = self.shared_state.clone();
-    let stashes = shared_state.stashes.lock().unwrap();
-    let selected_index = shared_state.selected_index.lock().unwrap();
-    stashes.get(*selected_index).cloned()
+    let stashes = self.shared_state.get_stashes();
+    if stashes.is_empty() {
+      return None;
+    }
+    let selected_index = self.shared_state.get_selected_index();
+    if selected_index >= stashes.len() {
+      return None;
+    }
+    stashes.get(selected_index).cloned()
   }
 
   fn apply_selected(&self) -> impl FnOnce() {
@@ -353,9 +338,6 @@ impl StashList {
     let selected = maybe_selected.unwrap();
     selected.stage_for_deletion(stage);
     self.shared_state.update_stashes(stashes);
-
-    // Update local copy for rendering
-    self.stashes = self.shared_state.get_stashes();
   }
 
   pub fn delete_staged_stashes(&self) -> impl FnOnce() {
@@ -477,11 +459,14 @@ impl StashList {
   }
 
   fn render_list(&mut self, f: &mut Frame<'_>, area: Rect) {
-    // Sync state before rendering
-    self.sync_state_for_render();
-
     let mut title = String::from("Stashes");
-    match self.loading {
+
+    // Extract state for rendering
+    let loading = *self.shared_state.loading.lock().unwrap();
+    let stashes = self.shared_state.get_stashes();
+    let selected_index = self.shared_state.get_selected_index();
+
+    match loading {
       LoadingOperation::LoadingStashes(time) => title = format!("Loading Stashes...({})", format_time_elapsed(time)),
       LoadingOperation::Applying(time) => title = format!("Applying Stash...({})", format_time_elapsed(time)),
       LoadingOperation::Popping(time) => title = format!("Popping Stash...({})", format_time_elapsed(time)),
@@ -493,7 +478,7 @@ impl StashList {
       LoadingOperation::None => {},
     }
 
-    let render_items: Vec<ListItem> = self.stashes.iter().map(|stash| stash.render()).collect();
+    let render_items: Vec<ListItem> = stashes.iter().map(|stash| stash.render()).collect();
     let list = List::new(render_items)
       .block(Block::default().title(title).borders(Borders::ALL))
       .style(Style::default().fg(Color::White))
@@ -501,7 +486,7 @@ impl StashList {
       .highlight_symbol("→")
       .repeat_highlight_symbol(true);
 
-    self.list_state.select(Some(self.selected_index));
+    self.list_state.select(Some(selected_index));
     f.render_stateful_widget(list, area, &mut self.list_state);
   }
 }
@@ -514,8 +499,9 @@ impl Component for StashList {
   }
 
   fn draw(&mut self, frame: &mut Frame<'_>, area: Rect) -> color_eyre::Result<()> {
-    // Sync with shared state before rendering
-    self.sync_state_for_render();
+    // Extract state for rendering
+    let stashes = self.shared_state.get_stashes();
+    let selected_index = self.shared_state.get_selected_index();
 
     let layout_base = Layout::default().direction(Direction::Vertical);
     let chunks = layout_base
@@ -526,8 +512,7 @@ impl Component for StashList {
       ])
       .split(area);
 
-    let stashes = self.stashes.clone();
-    let selected_stash = stashes.get(self.selected_index);
+    let selected_stash = stashes.get(selected_index);
     let has_staged_stashes = stashes.iter().any(|s| s.staged_for_deletion); // Calculate if any stashes are staged
     self.render_list(frame, chunks[0]);
 
@@ -744,30 +729,9 @@ mod tests {
   }
 
   #[tokio::test]
-  async fn test_sync_state_for_render() {
-    let repo = Arc::new(MockGitRepo);
-    let mut stash_list = StashList::new(repo);
-
-    stash_list.shared_state.set_loading(LoadingOperation::Applying(SystemTime::now()));
-    stash_list.shared_state.update_stashes(vec![StashItem::new(GitStash::new(
-      0,
-      "message1".to_string(),
-      "stash@{0}".to_string(),
-      "branch_name".to_string(),
-    ))]);
-    stash_list.shared_state.set_selected_index(0);
-
-    stash_list.sync_state_for_render();
-
-    assert!(matches!(stash_list.loading, LoadingOperation::Applying(_)));
-    assert_eq!(stash_list.stashes.len(), 1);
-    assert_eq!(stash_list.selected_index, 0);
-  }
-
-  #[tokio::test]
   async fn test_get_selected_stash() {
     let repo = Arc::new(MockGitRepo);
-    let mut stash_list = StashList::new(repo);
+    let stash_list = StashList::new(repo);
 
     stash_list.shared_state.update_stashes(vec![StashItem::new(GitStash::new(
       0,
@@ -777,7 +741,6 @@ mod tests {
     ))]);
     stash_list.shared_state.set_selected_index(0);
 
-    stash_list.sync_state_for_render();
     let selected_stash = stash_list.get_selected_stash();
 
     assert!(selected_stash.is_some());
