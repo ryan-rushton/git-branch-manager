@@ -95,7 +95,6 @@ impl SharedState {
 pub struct BranchList {
   mode: Mode,
   repo: Arc<dyn GitRepo>,
-  // Moved to shared state
   shared_state: SharedState,
   list_state: ListState,
   // Components
@@ -119,7 +118,7 @@ impl BranchList {
 
   pub fn load_branches(&self) -> impl FnOnce() {
     let state = self.shared_state.clone();
-    let repo_clone = self.repo.clone(); // Assuming repo can be cloned, might need a different approach
+    let repo_clone = self.repo.clone();
 
     move || {
       state.set_loading(LoadingOperation::LoadingBranches(SystemTime::now()));
@@ -338,7 +337,7 @@ impl BranchList {
               error!("Failed to delete branch {}: {}", branch.name, err);
             }
           }
-          // Update progress
+
           state.set_loading(LoadingOperation::DeletingWithProgress(start_time, i + 1, total_branches));
           state.send_render();
         }

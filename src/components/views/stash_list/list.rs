@@ -100,7 +100,7 @@ pub struct StashList {
   mode: Mode,
   list_state: ListState,
   instruction_footer: InstructionFooter,
-  stash_input: StashInput, // Add stash input component
+  stash_input: StashInput,
 }
 
 impl StashList {
@@ -113,7 +113,7 @@ impl StashList {
       mode: Mode::Selection,
       list_state: ListState::default(),
       instruction_footer: InstructionFooter::default(),
-      stash_input: StashInput::new(), // Initialize stash input
+      stash_input: StashInput::new(),
     }
   }
 
@@ -513,18 +513,18 @@ impl Component for StashList {
       .split(area);
 
     let selected_stash = stashes.get(selected_index);
-    let has_staged_stashes = stashes.iter().any(|s| s.staged_for_deletion); // Calculate if any stashes are staged
+    let has_staged_stashes = stashes.iter().any(|s| s.staged_for_deletion);
     self.render_list(frame, chunks[0]);
 
     if self.mode == Mode::Input {
       self.stash_input.render(frame, chunks[1]);
     }
 
-    self.instruction_footer.render(frame, chunks[2], selected_stash, has_staged_stashes); // Pass the new argument
+    self.instruction_footer.render(frame, chunks[2], selected_stash, has_staged_stashes);
 
     Ok(())
   }
-} // Correctly close the Component impl block
+}
 
 #[async_trait::async_trait]
 impl AsyncComponent for StashList {
@@ -598,7 +598,7 @@ impl AsyncComponent for StashList {
         info!("StashList: Creating stash with message: {}", message);
         let operation = self.create_stash(message);
         operation();
-        Ok(Some(Action::EndInputMod)) // End input mode after creating stash
+        Ok(Some(Action::EndInputMod))
       },
       _ => Ok(None),
     }
@@ -656,7 +656,6 @@ impl StashList {
   }
 }
 
-// Move helper function outside impl blocks
 fn format_time_elapsed(time: SystemTime) -> String {
   match time.elapsed() {
     Ok(elapsed) => format!("{:.1}s", elapsed.as_secs_f64()),
