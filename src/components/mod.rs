@@ -2,6 +2,7 @@ use tokio::sync::mpsc::UnboundedSender;
 
 use crate::{action::Action, tui::Frame};
 
+pub mod common;
 pub mod views;
 
 pub use views::{BranchList, ErrorView, StashList};
