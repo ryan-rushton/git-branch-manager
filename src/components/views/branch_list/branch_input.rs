@@ -11,7 +11,7 @@ use crate::{
 
 #[derive(Debug, Default)]
 pub struct BranchInput {
-  pub text_input: TextInput,
+  text_input: TextInput,
 }
 
 impl BranchInput {

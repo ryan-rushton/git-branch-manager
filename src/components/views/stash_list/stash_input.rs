@@ -5,7 +5,7 @@ use crate::{action::Action, components::common::text_input::TextInput, tui::Fram
 
 #[derive(Debug, Default)]
 pub struct StashInput {
-  pub text_input: TextInput,
+  text_input: TextInput,
 }
 
 impl StashInput {
