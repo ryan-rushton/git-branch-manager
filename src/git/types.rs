@@ -3,11 +3,12 @@ use crate::error::Error;
 #[derive(Debug, Default, Clone, PartialEq, Eq)]
 pub struct GitRemoteBranch {
   pub name: String,
+  pub gone: bool,
 }
 
 impl GitRemoteBranch {
-  pub fn new(name: String) -> Self {
-    GitRemoteBranch { name }
+  pub fn new(name: String, gone: bool) -> Self {
+    GitRemoteBranch { name, gone }
   }
 }
 
