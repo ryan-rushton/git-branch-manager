@@ -40,12 +40,120 @@ impl BranchItem {
       parts.push(Span::styled(" (HEAD)", Style::default().add_modifier(Modifier::DIM)));
     }
 
-    if self.branch.upstream.is_some() {
-      let upstream = self.branch.upstream.clone();
-      parts.push(Span::styled(format!(" [{}]", upstream.unwrap().name), Style::default().add_modifier(Modifier::DIM)));
+    if let Some(upstream) = self.branch.upstream.clone() {
+      parts.push(Span::styled(
+        format!(" [{}{}]", upstream.name, if upstream.gone { ": gone" } else { "" }),
+        Style::default().add_modifier(Modifier::DIM),
+      ));
     }
 
     text = text.spans(parts);
     ListItem::from(text)
+  }
+}
+
+#[cfg(test)]
+mod tests {
+  use ratatui::widgets::ListItem;
+
+  use super::*;
+  use crate::git::types::GitBranch;
+
+  #[test]
+  fn test_new_branch_item() {
+    let branch = GitBranch { name: "test-branch".to_string(), is_head: false, upstream: None };
+    let branch_item = BranchItem::new(branch.clone(), true);
+
+    assert_eq!(branch_item.branch.name, branch.name);
+    assert!(branch_item.is_valid_name);
+    assert!(!branch_item.staged_for_creation);
+    assert!(!branch_item.staged_for_deletion);
+  }
+
+  #[test]
+  fn test_stage_for_deletion() {
+    let branch = GitBranch { name: "test-branch".to_string(), is_head: false, upstream: None };
+    let mut branch_item = BranchItem::new(branch, true);
+
+    branch_item.stage_for_deletion(true);
+    assert!(branch_item.staged_for_deletion);
+
+    branch_item.stage_for_deletion(false);
+    assert!(!branch_item.staged_for_deletion);
+  }
+
+  #[test]
+  fn test_render() {
+    let branch = GitBranch { name: "test-branch".to_string(), is_head: false, upstream: None };
+    let branch_item =
+      BranchItem { branch, staged_for_creation: false, staged_for_deletion: false, is_valid_name: true };
+
+    let rendered = branch_item.render();
+
+    assert_eq!(rendered, ListItem::new("test-branch"));
+  }
+
+  #[test]
+  fn test_render_staged_for_creation_with_valid_name() {
+    let branch = GitBranch { name: "test-branch".to_string(), is_head: false, upstream: None };
+    let branch_item = BranchItem { branch, staged_for_creation: true, staged_for_deletion: false, is_valid_name: true };
+
+    let rendered = branch_item.render();
+
+    assert_eq!(rendered, ListItem::new(Span::from("test-branch").style(Style::default().fg(Color::LightGreen))));
+  }
+
+  #[test]
+  fn test_render_staged_for_creation_with_invalid_name() {
+    let branch = GitBranch { name: "test-branch".to_string(), is_head: false, upstream: None };
+    let branch_item =
+      BranchItem { branch, staged_for_creation: true, staged_for_deletion: false, is_valid_name: false };
+
+    let rendered = branch_item.render();
+
+    assert_eq!(rendered, ListItem::new(Span::from("test-branch").style(Style::default().fg(Color::LightRed))));
+  }
+
+  #[test]
+  fn test_render_head_with_remote_gone() {
+    let branch = GitBranch {
+      name: "test-branch".to_string(),
+      is_head: true,
+      upstream: Some(crate::git::types::GitRemoteBranch { name: "origin/test-branch".to_string(), gone: true }),
+    };
+    let branch_item =
+      BranchItem { branch, staged_for_creation: false, staged_for_deletion: false, is_valid_name: true };
+
+    let rendered = branch_item.render();
+
+    assert_eq!(
+      rendered,
+      ListItem::new(Line::from_iter([
+        Span::from("test-branch"),
+        Span::from(" (HEAD)").style(Style::default().add_modifier(Modifier::DIM)),
+        Span::from(" [origin/test-branch: gone]").style(Style::default().add_modifier(Modifier::DIM))
+      ]))
+    );
+  }
+
+  #[test]
+  fn test_render_head_with_remote_staged_for_deletion() {
+    let branch = GitBranch {
+      name: "test-branch".to_string(),
+      is_head: true,
+      upstream: Some(crate::git::types::GitRemoteBranch { name: "origin/test-branch".to_string(), gone: false }),
+    };
+    let branch_item = BranchItem { branch, staged_for_creation: false, staged_for_deletion: true, is_valid_name: true };
+
+    let rendered = branch_item.render();
+
+    assert_eq!(
+      rendered,
+      ListItem::new(Line::from_iter([
+        Span::from("test-branch").style(Style::default().fg(Color::Red)),
+        Span::from(" (HEAD)").style(Style::default().add_modifier(Modifier::DIM)),
+        Span::from(" [origin/test-branch]").style(Style::default().add_modifier(Modifier::DIM))
+      ]))
+    );
   }
 }

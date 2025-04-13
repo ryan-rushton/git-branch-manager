@@ -80,11 +80,12 @@ impl GitCliRepo {
         let is_head = captures.name("head").is_some();
         let name = String::from(captures.name("name").unwrap().as_str());
         let upstream = captures.name("upstream");
+        let gone = captures.name("gone").is_some();
 
         GitBranch {
           name: name.clone(),
           is_head,
-          upstream: upstream.map(|upstream_name| GitRemoteBranch::new(String::from(upstream_name.as_str()))),
+          upstream: upstream.map(|upstream_name| GitRemoteBranch::new(String::from(upstream_name.as_str()), gone)),
         }
       })
       .collect()
