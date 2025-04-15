@@ -3,6 +3,7 @@ use async_trait::async_trait;
 use super::{GitBranch, GitRepo, GitStash};
 use crate::error::Error;
 
+#[derive(Clone, Debug)]
 pub struct MockGitRepo;
 
 #[async_trait]

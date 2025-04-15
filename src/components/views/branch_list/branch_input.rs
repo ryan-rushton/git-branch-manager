@@ -55,3 +55,85 @@ impl BranchInput {
     self.text_input.render(f, area);
   }
 }
+
+#[cfg(test)]
+mod tests {
+  use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+
+  use super::*;
+  use crate::git::{mock_git_repo::MockGitRepo, types::GitBranch};
+
+  #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+  async fn test_handle_key_event_submit() {
+    let mut branch_input = BranchInput::new();
+    branch_input.text_input.text_input.insert_str("new-branch");
+
+    let repo = MockGitRepo;
+    let main_branch = GitBranch::new("main".to_string());
+    let current_branches = vec![&main_branch];
+
+    let action = branch_input
+      .handle_key_event(
+        KeyEvent {
+          code: KeyCode::Enter,
+          modifiers: KeyModifiers::NONE,
+          kind: crossterm::event::KeyEventKind::Press,
+          state: crossterm::event::KeyEventState::NONE,
+        },
+        &repo,
+        current_branches,
+      )
+      .await;
+
+    assert_eq!(action, Some(Action::CreateBranch("new-branch".to_string())));
+  }
+
+  #[tokio::test]
+  async fn test_handle_key_event_escape() {
+    let mut branch_input = BranchInput::new();
+    branch_input.text_input.text_input.insert_str("some input");
+
+    let repo = MockGitRepo;
+    let current_branches = vec![];
+
+    let action = branch_input
+      .handle_key_event(
+        KeyEvent {
+          code: KeyCode::Esc,
+          modifiers: KeyModifiers::NONE,
+          kind: crossterm::event::KeyEventKind::Press,
+          state: crossterm::event::KeyEventState::NONE,
+        },
+        &repo,
+        current_branches,
+      )
+      .await;
+
+    assert_eq!(action, Some(Action::EndInputMode));
+    assert!(branch_input.text_input.get_text().is_none());
+  }
+
+  #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+  async fn test_handle_key_event_char() {
+    let mut branch_input = BranchInput::new();
+    branch_input.text_input.text_input.insert_str("tes");
+
+    let repo = MockGitRepo;
+    let current_branches = vec![];
+
+    branch_input
+      .handle_key_event(
+        KeyEvent {
+          code: KeyCode::Char('t'),
+          modifiers: KeyModifiers::NONE,
+          kind: crossterm::event::KeyEventKind::Press,
+          state: crossterm::event::KeyEventState::NONE,
+        },
+        &repo,
+        current_branches,
+      )
+      .await;
+
+    assert_eq!(branch_input.text_input.get_text(), Some("test".to_string()));
+  }
+}
