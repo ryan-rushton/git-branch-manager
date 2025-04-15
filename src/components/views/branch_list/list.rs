@@ -429,14 +429,14 @@ impl BranchList {
     let selected_index = self.shared_state.get_selected_index();
     let loading = *self.shared_state.loading.lock().unwrap();
 
-    let input_state = self.branch_input.input_state.clone();
+    let input_state = self.branch_input.get_state();
     if input_state.value.is_some() && self.mode == Mode::Input {
       let content = input_state.value.unwrap();
       branches.push(BranchItem {
         branch: GitBranch::new(content.clone()),
         staged_for_creation: true,
         staged_for_deletion: false,
-        is_valid_name: self.branch_input.input_state.is_valid.unwrap_or(false),
+        is_valid_name: input_state.is_valid.unwrap_or(false),
       });
       branches.sort_by(|a, b| a.branch.name.cmp(&b.branch.name));
       self.list_state.select(branches.iter().position(|bi| bi.staged_for_creation))
@@ -564,7 +564,7 @@ impl AsyncComponent for BranchList {
         self.branch_input.init_style();
         Ok(Some(Action::StartInputMode))
       },
-      Action::EndInputMod => {
+      Action::EndInputMode => {
         self.mode = Mode::Selection;
         Ok(None)
       },
@@ -588,7 +588,7 @@ impl AsyncComponent for BranchList {
         self.mode = Mode::Selection;
         let operation = self.create_branch(name);
         operation();
-        Ok(Some(Action::EndInputMod))
+        Ok(Some(Action::EndInputMode))
       },
       Action::StageBranchForDeletion => {
         info!("BranchList: Staging branch for deletion");

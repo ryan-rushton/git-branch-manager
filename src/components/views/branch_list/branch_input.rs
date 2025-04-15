@@ -1,29 +1,17 @@
-use crossterm::event::{KeyCode, KeyEvent};
-use ratatui::{
-  layout::Rect,
-  prelude::Color,
-  style::Style,
-  widgets::{Block, Borders},
-};
-use tracing::{error, info};
-use tui_textarea::{CursorMove, Input, TextArea};
+use crossterm::event::KeyEvent;
+use ratatui::layout::Rect;
+use tokio::task::block_in_place;
 
 use crate::{
   action::Action,
+  components::common::text_input::{InputState, TextInput},
   git::types::{GitBranch, GitRepo},
   tui::Frame,
 };
 
-#[derive(Debug, Default, Clone)]
-pub struct InputState {
-  pub value: Option<String>,
-  pub is_valid: Option<bool>,
-}
-
 #[derive(Debug, Default)]
 pub struct BranchInput {
-  pub text_input: TextArea<'static>,
-  pub input_state: InputState,
+  text_input: TextInput,
 }
 
 impl BranchInput {
@@ -32,49 +20,19 @@ impl BranchInput {
   }
 
   pub fn init_style(&mut self) {
-    self.text_input.set_style(Style::default().fg(Color::White));
-    self.text_input.set_block(Block::default().borders(Borders::ALL));
+    self.text_input.init_style();
   }
 
-  fn get_text(&self) -> Option<String> {
-    let input = String::from(self.text_input.lines().first()?.trim());
-    if input.is_empty() {
-      return None;
-    }
-    Some(input)
+  pub fn get_state(&self) -> InputState {
+    self.text_input.input_state.clone()
   }
 
-  async fn validate_branch_name(&mut self, repo: &dyn GitRepo, current_branches: Vec<&GitBranch>) {
-    if self.text_input.lines().is_empty() {
-      self.input_state.is_valid = Some(false);
-      return;
-    }
-
-    let proposed_name = self.text_input.lines().first().unwrap().trim();
-    if proposed_name.is_empty() {
-      self.input_state.is_valid = Some(false);
-      return;
-    }
-
-    let is_valid = repo.validate_branch_name(proposed_name).await;
+  fn validate_branch_name(proposed_name: &str, repo: &dyn GitRepo, current_branches: &[&GitBranch]) -> bool {
+    let is_valid =
+      block_in_place(|| tokio::runtime::Handle::current().block_on(repo.validate_branch_name(proposed_name)))
+        .unwrap_or(false);
     let is_unique_name = !current_branches.iter().any(|b| b.name.eq(proposed_name));
-
-    match is_valid {
-      Ok(valid) => {
-        if !valid || !is_unique_name {
-          self.text_input.set_style(Style::default().fg(Color::LightRed));
-          self.input_state.is_valid = Some(false);
-        } else {
-          self.text_input.set_style(Style::default().fg(Color::LightGreen));
-          self.input_state.is_valid = Some(true);
-        }
-      },
-      Err(e) => {
-        error!("BranchInput: Branch name validation error: {}", e);
-        self.text_input.set_style(Style::default().fg(Color::LightRed));
-        self.input_state.is_valid = Some(false);
-      },
-    }
+    is_valid && is_unique_name
   }
 
   pub async fn handle_key_event(
@@ -83,42 +41,99 @@ impl BranchInput {
     repo: &dyn GitRepo,
     current_branches: Vec<&GitBranch>,
   ) -> Option<Action> {
-    match key_event {
-      KeyEvent { code: KeyCode::Esc, .. } => {
-        self.input_state.value = None;
-        self.input_state.is_valid = None;
-        self.text_input.move_cursor(CursorMove::Head);
-        self.text_input.delete_line_by_end();
-        Some(Action::EndInputMod)
-      },
-      KeyEvent { code: KeyCode::Enter, .. } => {
-        if !self.input_state.is_valid.unwrap_or(false) {
-          return None;
-        }
+    let validate_fn = |proposed_name: &str| BranchInput::validate_branch_name(proposed_name, repo, &current_branches);
 
-        let new_branch_name = self.get_text();
-        self.text_input.move_cursor(CursorMove::Head);
-        self.text_input.delete_line_by_end();
-
-        new_branch_name.map_or(Some(Action::EndInputMod), |name| {
-          info!("BranchInput: Creating branch '{}'", name);
-          Some(Action::CreateBranch(name))
-        })
-      },
-      _ => {
-        let changed = self.text_input.input(Input::from(key_event));
-        if changed {
-          self.validate_branch_name(repo, current_branches).await;
-          if let Some(new_name) = self.get_text() {
-            self.input_state.value = Some(new_name);
-          }
-        }
-        None
-      },
-    }
+    self.text_input.handle_key_event(key_event, validate_fn).map(|action| {
+      match action {
+        Action::InputSubmitted(text) => Action::CreateBranch(text),
+        _ => action,
+      }
+    })
   }
 
   pub fn render(&mut self, f: &mut Frame<'_>, area: Rect) {
-    f.render_widget(&self.text_input, area);
+    self.text_input.render(f, area);
+  }
+}
+
+#[cfg(test)]
+mod tests {
+  use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+
+  use super::*;
+  use crate::git::{mock_git_repo::MockGitRepo, types::GitBranch};
+
+  #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+  async fn test_handle_key_event_submit() {
+    let mut branch_input = BranchInput::new();
+    branch_input.text_input.text_input.insert_str("new-branch");
+
+    let repo = MockGitRepo;
+    let main_branch = GitBranch::new("main".to_string());
+    let current_branches = vec![&main_branch];
+
+    let action = branch_input
+      .handle_key_event(
+        KeyEvent {
+          code: KeyCode::Enter,
+          modifiers: KeyModifiers::NONE,
+          kind: crossterm::event::KeyEventKind::Press,
+          state: crossterm::event::KeyEventState::NONE,
+        },
+        &repo,
+        current_branches,
+      )
+      .await;
+
+    assert_eq!(action, Some(Action::CreateBranch("new-branch".to_string())));
+  }
+
+  #[tokio::test]
+  async fn test_handle_key_event_escape() {
+    let mut branch_input = BranchInput::new();
+    branch_input.text_input.text_input.insert_str("some input");
+
+    let repo = MockGitRepo;
+    let current_branches = vec![];
+
+    let action = branch_input
+      .handle_key_event(
+        KeyEvent {
+          code: KeyCode::Esc,
+          modifiers: KeyModifiers::NONE,
+          kind: crossterm::event::KeyEventKind::Press,
+          state: crossterm::event::KeyEventState::NONE,
+        },
+        &repo,
+        current_branches,
+      )
+      .await;
+
+    assert_eq!(action, Some(Action::EndInputMode));
+    assert!(branch_input.text_input.get_text().is_none());
+  }
+
+  #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+  async fn test_handle_key_event_char() {
+    let mut branch_input = BranchInput::new();
+    branch_input.text_input.text_input.insert_str("tes");
+
+    let repo = MockGitRepo;
+    let current_branches = vec![];
+
+    branch_input
+      .handle_key_event(
+        KeyEvent {
+          code: KeyCode::Char('t'),
+          modifiers: KeyModifiers::NONE,
+          kind: crossterm::event::KeyEventKind::Press,
+          state: crossterm::event::KeyEventState::NONE,
+        },
+        &repo,
+        current_branches,
+      )
+      .await;
+
+    assert_eq!(branch_input.text_input.get_text(), Some("test".to_string()));
   }
 }

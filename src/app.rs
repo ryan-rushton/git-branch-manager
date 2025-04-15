@@ -122,7 +122,7 @@ impl App {
 
         match &action {
           Action::StartInputMode => self.mode = Mode::Input,
-          Action::EndInputMod => self.mode = Mode::Default,
+          Action::EndInputMode => self.mode = Mode::Default,
           Action::Quit => self.should_quit = true,
           Action::Suspend => self.should_suspend = true,
           Action::Resume => self.should_suspend = false,
