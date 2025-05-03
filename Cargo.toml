@@ -20,7 +20,7 @@ clap = { version = "4.5.37", features = [
     "string",
     "unstable-styles",
 ] }
-color-eyre = "0.6.3"
+color-eyre = "0.6.4"
 config = "0.15.11"
 crossterm = { version = "0.28.1", features = ["serde", "event-stream"] }
 directories = "6.0.0"
