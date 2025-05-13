@@ -49,7 +49,7 @@ impl GitCliRepo {
       })
     })
     .await
-    .map_err(|e| Error::Git(format!("Task join error: {}", e)))??;
+    .map_err(|e| Error::Git(format!("Task join error: {e}")))??;
 
     if !output.status.success() {
       let err = String::from_utf8_lossy(&output.stderr);

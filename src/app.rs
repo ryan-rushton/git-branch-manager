@@ -156,7 +156,7 @@ impl App {
                 _ => component.draw(f, f.area()),
               };
               if let Err(e) = result {
-                action_tx.send(Action::Error(format!("Failed to draw: {:?}", e))).unwrap();
+                action_tx.send(Action::Error(format!("Failed to draw: {e:?}"))).unwrap();
               }
             })?;
           },
