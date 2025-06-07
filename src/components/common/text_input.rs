@@ -69,11 +69,9 @@ impl TextInput {
       },
       _ => {
         let changed = self.text_input.input(Input::from(key_event));
-        if changed {
-          if let Some(new_text) = self.get_text() {
-            self.input_state.value = Some(new_text.clone());
-            self.input_state.is_valid = Some(validate_fn(&new_text));
-          }
+        if changed && let Some(new_text) = self.get_text() {
+          self.input_state.value = Some(new_text.clone());
+          self.input_state.is_valid = Some(validate_fn(&new_text));
         }
         None
       },

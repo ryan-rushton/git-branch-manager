@@ -23,7 +23,7 @@ impl BranchItem {
     self.staged_for_deletion = stage;
   }
 
-  pub fn render(&self) -> ListItem {
+  pub fn render(&self) -> ListItem<'_> {
     let mut text = Line::default();
     let mut parts = Vec::new();
     let mut name = Span::styled(self.branch.name.clone(), Style::default());
